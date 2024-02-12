@@ -5,12 +5,14 @@
 …
 """
 
+import os
+from os.path import exists, join
 import argparse
 import numpy as np
 import iio
 from scipy.ndimage import gaussian_filter
 
-def calculer_phi(u, v, l, search_side, sigma, est_uu=False):
+def calculer_phi(u, v, l, cfg, est_uu=False):
     """
     D'après la formule (2.2).
     Paramètres
@@ -21,37 +23,44 @@ def calculer_phi(u, v, l, search_side, sigma, est_uu=False):
         Image de comparaison.
     l : int
         Demi-côté de la vignette carrée.
-    search_side: int
-        Côté de la fenêtre de recherche carrée.
-    sigma : float.
-        Écart type de la gaussienne.
+    cfg : Namespace
     """
 
     nlig, ncol = u.shape
 
     # résultat
-    phi_uvl = np.nan * np.ones((nlig, ncol, search_side**2))
+    phi_uvl = np.nan * np.ones((nlig, ncol, cfg.b**2))
 
     # images filtrées
-    u_rho = gaussian_filter(u, sigma)
-    v_rho = gaussian_filter(v, sigma)
+    u_rho = gaussian_filter(u, cfg.sigma)
+    v_rho = gaussian_filter(v, cfg.sigma)
 
     # calcul pixellien
     for xi in np.arange(nlig):
 #        print(xi)
         for xj in np.arange(ncol):
             try:
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
- #               print(u.shape, "uu.shape", uu.shape, "l", l, xi, xj, xi-l,xi+l+1, xj-l, xj+l+1)
+                if cfg.metrique == "l2":
+                    uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
+                elif cfg.metrique == "ratio":
+                    uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
+                elif cfg.metrique == "correlation":
+                    uu = u[xi-l:xi+l+1, xj-l:xj+l+1]                    
                 k = 0
-                for m in np.arange(search_side):
-                    for n in np.arange(search_side):
-                        yi = xi + m - search_side // 2
-                        yj = xj + n - search_side // 2
+                for m in np.arange(cfg.b):
+                    for n in np.arange(cfg.b):
+                        yi = xi + m - cfg.b // 2
+                        yj = xj + n - cfg.b // 2
                         if not est_uu or (est_uu and not (yi == xi and yj == xj)):
-                            vv = v[yi-l:yi+l+1, yj-l:yj+l+1] - v_rho[yi, yj]
-#                        print("vv.shape", vv.shape)
-                            phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
+                            if cfg.metrique == "l2":
+                                vv = v[yi-l:yi+l+1, yj-l:yj+l+1] - v_rho[yi, yj]
+                                phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
+                            elif cfg.metrique == "ratio":
+                                vv = v[yi-l:yi+l+1, yj-l:yj+l+1] * (u_rho[xi, xj] / v_rho[yi, yj])
+                                phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
+                            elif cfg.metrique == "correlation":
+                                vv = v[yi-l:yi+l+1, yj-l:yj+l+1]
+                                phi_uvl[xi, xj, k] = np.sum(uu * vv) / (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv)))
                         k += 1
 #                        if xi == 10 and xj == 10:
 #                            print(f"{xi} {xj} {yi} {yj}")
@@ -62,14 +71,14 @@ def calculer_phi(u, v, l, search_side, sigma, est_uu=False):
     return phi_uvl
 
 
-def calculer_pfas(cfg, im1, im2):
+def calculer_pfas(cfg, im1, im2, ican):
     """
     Paramètres
     ----------
     cfg: Namespace
     im1: np.array(nlig, ncol)
     im2: np.array(nlig, ncol)
-
+    ican: int
     Retour
     ------
     decisions: np.array(L, nlig, ncol)
@@ -82,14 +91,14 @@ def calculer_pfas(cfg, im1, im2):
     for l in np.arange(1, cfg.scale+1):
         print(f"Échelle {l}")
         # calcul de φ(u, u, l)
-        phi_uul = calculer_phi(im1, im1, l, cfg.b, cfg.sigma, est_uu=True)
+        phi_uul = calculer_phi(im1, im1, l, cfg, est_uu=True)
         print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
-        for n in np.arange(ncan):
-            iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
+#        for n in np.arange(ncan):
+#            iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
 
         # calcul de φ(u, v, l)
-        phi_uvl = calculer_phi(im1, im2, l, cfg.b, cfg.sigma)
+        phi_uvl = calculer_phi(im1, im2, l, cfg)
 
         # calcul de τ_mean(l) d'après (5.1)
         tau_l_mean = []
@@ -114,7 +123,7 @@ def calculer_pfas(cfg, im1, im2):
                     
                 except ValueError:
                     pass
-        iio.write(f"tau_ul{l}.tif", tau_ul)
+        iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
         print("# calcul de τ(u, l) d'après (5.1)")
         # calcul de S_Nl
         S_Nl = np.zeros((nlig, ncol))
@@ -124,7 +133,7 @@ def calculer_pfas(cfg, im1, im2):
                     S_Nl[i, j] = np.sum(phi_uvl[i, j, :] >= tau_ul[i, j])
                 except ValueError:
                     pass
-        iio.write(f"snl{l}.tif", S_Nl)
+        iio.write(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
         # calcul de decision_l d'après (4.1)
         decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
         decisions += [decision_l]
@@ -163,14 +172,16 @@ def calculer_alpha(epsilon, nlig, ncol, pfal):
     return alpha
 
 
-def algorithme(cfg, im1, im2):
+def algorithme(cfg, im1, im2, ican):
     """
     cfg: Namespace
     im1: np.array ndim=(nlig, ncol)
     im2: np.array ndim=(nlig, ncol)
+    ican : int
+        Index du canal.
     """
     nlig, ncol = im1.shape
-    pfas, decisions = calculer_pfas(cfg, im1, im2)
+    pfas, decisions = calculer_pfas(cfg, im1, im2, ican)
     lambda_n = np.sum(np.array(pfas))
     print(f"lambda_n {lambda_n}")
     # calcul de kd
@@ -178,7 +189,7 @@ def algorithme(cfg, im1, im2):
 
     # calcul de P_FA(x, L) pour tout x
     pfal = calculer_pfal(kd, lambda_n, nlig, ncol)
-    iio.write(f"pfal.tif", pfal)
+
     # calcul de α
     alpha = calculer_alpha(cfg.epsilon, nlig, ncol, pfal)
 
@@ -201,17 +212,26 @@ def lit_parametres():
     )
     parser.add_argument(
         "--scale", type=int, required=True, help="Nombre d'échelles."
+        , default=2
     )
     parser.add_argument(
-        "--b", type=int, required=True, help="Voisinage de τ."
+        "--b", type=int, required=True, default=3, help="Voisinage de τ."
     )
     parser.add_argument(
-        "--epsilon", type=float, required=True,
+        "--metrique", type=str, required=False, help="Distance.",
+        choices=["correlation", "l2", "ratio"], default="l2"
+    )    
+    parser.add_argument(
+        "--epsilon", type=float, required=True, default=1.0,
         help="Nombre de fausses alarmes."
     )
     parser.add_argument(
-        "--sigma", type=float, required=True,
-        help="Ecart type du noyau de flou."
+        "--sigma", type=float, required=True, default=0.8,
+        help="Écart type du noyau de flou."
+    )
+    parser.add_argument(
+        "--repout", type=str, required=True,
+        help="Répertoire de sortie."
     )
 
     cfg = parser.parse_args()
@@ -228,13 +248,20 @@ def main():
     im1 = iio.read(cfg.image1)
     im2 = iio.read(cfg.image2)
 
+    if not exists(cfg.repout):
+        os.mkdir(cfg.repout)
+        
     _, _, ncan = im1.shape
     for n in np.arange(ncan):
-        h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n])
-        iio.write(f"huvl_{n}.tif", h_uv)
-        iio.write(f"pfal_{n}.tif", pfal)
+        h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
+        iio.write(join(cfg.repout, f"huvl_c{n}.tif"), h_uv)
+        iio.write(join(cfg.repout, f"pfal_c{n}.tif"), pfal)
     return 0
 
 
 if __name__ == "__main__":
     main()
+
+    #Lignes de commandes 
+    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation --repout mcor_s2_b3_eps1_sig0.8
+    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique ratio --repout mrat_s2_b3_eps1_sig0.8
