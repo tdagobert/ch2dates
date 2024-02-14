@@ -230,7 +230,7 @@ def lit_parametres():
         help="Écart type du noyau de flou."
     )
     parser.add_argument(
-        "--repout", type=str, required=True,
+        "--repout", type=str, required=True, default="./",
         help="Répertoire de sortie."
     )
 
