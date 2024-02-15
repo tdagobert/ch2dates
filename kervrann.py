@@ -240,6 +240,15 @@ def lit_parametres():
     return cfg
 
 
+def normaliser_image(rgb):
+
+    mini = np.min(rgb)                                                                                                                                                                       
+    maxi = np.max(rgb)                                                                                                                                                                       
+    rgb = 255 * (rgb - mini) / (maxi - mini)                                                                                                                                                  
+    rgb = np.array(rgb, dtype=np.uint8)                                                                                                                                                      
+
+    return rgb
+
 def main():
     """
     ...
@@ -263,6 +272,7 @@ def main():
     nlig, ncol, ncan = im1.shape
     for n in np.arange(ncan):
         h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
+        h_uv = normaliser_image(h_uv)
         iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
         iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
     return 0
