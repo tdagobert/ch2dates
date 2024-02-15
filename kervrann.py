@@ -123,7 +123,7 @@ def calculer_pfas(cfg, im1, im2, ican):
                     
                 except ValueError:
                     pass
-        iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
+#        iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
         print("# calcul de τ(u, l) d'après (5.1)")
         # calcul de S_Nl
         S_Nl = np.zeros((nlig, ncol))
@@ -133,7 +133,7 @@ def calculer_pfas(cfg, im1, im2, ican):
                     S_Nl[i, j] = np.sum(phi_uvl[i, j, :] >= tau_ul[i, j])
                 except ValueError:
                     pass
-        iio.write(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
+#        iio.write(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
         # calcul de decision_l d'après (4.1)
         decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
         decisions += [decision_l]
@@ -251,11 +251,16 @@ def main():
     if not exists(cfg.repout):
         os.mkdir(cfg.repout)
         
-    _, _, ncan = im1.shape
+    nlig, ncol, ncan = im1.shape
+    im1 = np.mean(im1, axis=2)
+    im1 = im1.reshape(nlig, ncol, 1)
+    im2 = np.mean(im2, axis=2)
+    im2 = im2.reshape(nlig, ncol, 1)
+    
     for n in np.arange(ncan):
         h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
-        iio.write(join(cfg.repout, f"huvl_c{n}.tif"), h_uv)
-        iio.write(join(cfg.repout, f"pfal_c{n}.tif"), pfal)
+        iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
+        iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
     return 0
 
 
