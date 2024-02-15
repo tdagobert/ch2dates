@@ -246,7 +246,7 @@ def main():
     """
 
     cfg = lit_parametres()
-    return 0
+
     im1 = iio.read(cfg.image1)
     im2 = iio.read(cfg.image2)
 
@@ -256,9 +256,11 @@ def main():
     nlig, ncol, ncan = im1.shape
     im1 = np.mean(im1, axis=2)
     im1 = im1.reshape(nlig, ncol, 1)
+
     im2 = np.mean(im2, axis=2)
     im2 = im2.reshape(nlig, ncol, 1)
-    
+
+    nlig, ncol, ncan = im1.shape
     for n in np.arange(ncan):
         h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
         iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
