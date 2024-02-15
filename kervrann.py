@@ -212,26 +212,26 @@ def lit_parametres():
         "--image2", type=str, required=True, help="Second image."
     )
     parser.add_argument(
-        "--scale", type=int, required=True, help="Nombre d'échelles."
+        "--scale", type=int, required=False, help="Nombre d'échelles."
         , default=2
     )
     parser.add_argument(
-        "--b", type=int, required=True, default=3, help="Voisinage de τ."
+        "--b", type=int, required=False, default=3, help="Voisinage de τ."
     )
     parser.add_argument(
         "--metrique", type=str, required=False, help="Distance.",
         choices=["correlation", "l2", "ratio"], default="l2"
     )    
     parser.add_argument(
-        "--epsilon", type=float, required=True, default=1.0,
+        "--epsilon", type=float, required=False, default=1.0,
         help="Nombre de fausses alarmes."
     )
     parser.add_argument(
-        "--sigma", type=float, required=True, default=0.8,
+        "--sigma", type=float, required=False, default=0.8,
         help="Écart type du noyau de flou."
     )
     parser.add_argument(
-        "--repout", type=str, required=True, default="./",
+        "--repout", type=str, required=False, default="./",
         help="Répertoire de sortie."
     )
 
