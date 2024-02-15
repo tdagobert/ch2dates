@@ -202,7 +202,7 @@ def lit_parametres():
     """
     …
     """
-    exit()
+
     d = "Compute the changes between two images."
     parser = argparse.ArgumentParser(description=d)
     parser.add_argument(
