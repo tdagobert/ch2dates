@@ -245,6 +245,7 @@ def main():
     """
 
     cfg = lit_parametres()
+    return 0
     im1 = iio.read(cfg.image1)
     im2 = iio.read(cfg.image2)
 
