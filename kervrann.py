@@ -11,7 +11,9 @@ import argparse
 import numpy as np
 import iio
 from scipy.ndimage import gaussian_filter
+from numba import njit, prange
 
+#@njit(debug=True,parallel=True)
 def calculer_phi(u, v, l, cfg, est_uu=False):
     """
     D'après la formule (2.2).
@@ -25,16 +27,17 @@ def calculer_phi(u, v, l, cfg, est_uu=False):
         Demi-côté de la vignette carrée.
     cfg : Namespace
     """
-
+    print("calculer phi…")
     nlig, ncol = u.shape
 
     # résultat
     phi_uvl = np.nan * np.ones((nlig, ncol, cfg.b**2))
 
     # images filtrées
-    u_rho = gaussian_filter(u, cfg.sigma)
-    v_rho = gaussian_filter(v, cfg.sigma)
-
+#    u_rho = gaussian_filter(u, cfg.sigma)
+#    v_rho = gaussian_filter(v, cfg.sigma)
+    u_rho = np.copy(u)
+    v_rho = np.copy(v)
     # calcul pixellien
     for xi in np.arange(nlig):
 #        print(xi)
@@ -45,7 +48,7 @@ def calculer_phi(u, v, l, cfg, est_uu=False):
                 elif cfg.metrique == "ratio":
                     uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
                 elif cfg.metrique == "correlation":
-                    uu = u[xi-l:xi+l+1, xj-l:xj+l+1]                    
+                    uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
                 k = 0
                 for m in np.arange(cfg.b):
                     for n in np.arange(cfg.b):
@@ -67,7 +70,7 @@ def calculer_phi(u, v, l, cfg, est_uu=False):
  #               exit()
             except ValueError:
                 pass
-    print("calculer phi")
+    print("calculer phi done")
     return phi_uvl
 
 
@@ -94,9 +97,9 @@ def calculer_pfas(cfg, im1, im2, ican):
         phi_uul = calculer_phi(im1, im1, l, cfg, est_uu=True)
         print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
-#        for n in np.arange(ncan):
-#            iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
-
+        for n in np.arange(ncan):
+            iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
+        exit()
         # calcul de φ(u, v, l)
         phi_uvl = calculer_phi(im1, im2, l, cfg)
 
@@ -120,7 +123,7 @@ def calculer_pfas(cfg, im1, im2, ican):
                     tau_ul[i, j] = np.nanmax(
                         (np.nanmax(phi_uul[i, j, :]), tau_l_mean)
                     )
-                    
+
                 except ValueError:
                     pass
 #        iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
@@ -221,7 +224,7 @@ def lit_parametres():
     parser.add_argument(
         "--metrique", type=str, required=False, help="Distance.",
         choices=["correlation", "l2", "ratio"], default="l2"
-    )    
+    )
     parser.add_argument(
         "--epsilon", type=float, required=False, default=1.0,
         help="Nombre de fausses alarmes."
@@ -234,6 +237,10 @@ def lit_parametres():
         "--repout", type=str, required=False, default="./",
         help="Répertoire de sortie."
     )
+    parser.add_argument(
+        "--ndvi-threshold", type=float, required=False, default=0.1,
+        help="NDVI seuil."
+    )
 
     cfg = parser.parse_args()
 
@@ -241,13 +248,36 @@ def lit_parametres():
 
 
 def normaliser_image(rgb):
-
-    mini = np.min(rgb)                                                                                                                                                                       
-    maxi = np.max(rgb)                                                                                                                                                                       
-    rgb = 255 * (rgb - mini) / (maxi - mini)                                                                                                                                                  
-    rgb = np.array(rgb, dtype=np.uint8)                                                                                                                                                      
-
+    """
+    …
+    """
+    mini = np.min(rgb)
+    maxi = np.max(rgb)
+    rgb = 255 * (rgb - mini) / (maxi - mini)
+    rgb = np.array(rgb, dtype=np.uint8)
     return rgb
+
+def ndvi_index_map(cfg, img):
+    """
+    If the image contains 4 channels, we assume it is a Sentinel-1 image with
+    the B04, B03, B02, B08 channels storage in this order. We retrieve the
+    B08 to compute the NDVI index…
+    """
+    nlig, ncol, ncan = img.shape
+
+    if ncan == 4:
+        # we compute the NDVI index, where values stand in [-1, +1]
+        ndvi = (img[:, :, 3] - img[:, :, 0]) / (img[:, :, 3] + img[:, :, 0])
+        ndvi = np.expand_dims(ndvi, axis=-1)
+        # we normalize
+        r_can = 255 * np.ones((nlig, ncol, 1))
+        g_can = 255 * (1 - (ndvi + 1) / 2)
+        img_ndvi = np.concatenate((g_can, r_can, g_can), axis=2)
+        img = img[:, :, 0:3]
+        return img, img_ndvi, ndvi
+    else:
+        return img, None, None
+
 
 def main():
     """
@@ -261,8 +291,11 @@ def main():
 
     if not exists(cfg.repout):
         os.mkdir(cfg.repout)
-        
-    nlig, ncol, ncan = im1.shape
+
+    im1, img_ndvi1, ndvi1 = ndvi_index_map(cfg, im1)
+    im2, img_ndvi2, ndvi2 = ndvi_index_map(cfg, im2)
+
+    nlig, ncol, _ = im1.shape
     im1 = np.mean(im1, axis=2)
     im1 = im1.reshape(nlig, ncol, 1)
 
@@ -275,12 +308,28 @@ def main():
         h_uv = normaliser_image(h_uv)
         iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
         iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
+
+    # NDVI filtering if any
+#    h_uv = np.ones((nlig, ncol, 1))
+    if img_ndvi1 is not None:
+        iio.write(join(cfg.repout, "ndvi1.png"), img_ndvi1)
+        iio.write(join(cfg.repout, "ndvi2.png"), img_ndvi2)
+#        iio.write(join(cfg.repout, "ndvi2.tif"), ndvi2)
+        # L'idée est de supprimer tous les changements qui sont du type
+        # végétation--> végétation ou du type non-végétation--> végétation.
+        # i.e. dès que im2 est végétation
+        img_veget = ndvi2 > cfg.ndvi_threshold
+        img_veget = img_veget.squeeze()
+#        iio.write(join(cfg.repout, f"veget.tif"), img_veget)
+        h_uv[img_veget] = 0
+        iio.write(join(cfg.repout, f"huvl_seuille.png"), h_uv)
+
     return 0
 
 
 if __name__ == "__main__":
     main()
 
-    #Lignes de commandes 
+    #Lignes de commandes
     # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation --repout mcor_s2_b3_eps1_sig0.8
     # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique ratio --repout mrat_s2_b3_eps1_sig0.8
