@@ -11,9 +11,53 @@ import argparse
 import numpy as np
 import iio
 from scipy.ndimage import gaussian_filter
-from numba import njit, prange
+from scipy.special import factorial
 
-#@njit(debug=True,parallel=True)
+def gerer_bords(img):
+    """
+    Remplacement des valeurs NaN situées sur les bords, par les valeurs
+    situées sur la frontière.
+    """
+    nlig, ncol, ncan = img.shape
+    for k in np.arange(ncan):
+        
+        # remplacement des colonnes
+        for i in np.arange(nlig):
+            j = 0
+            while j < ncol and np.isnan(img[i, j, k]):
+                j += 1
+            # toute la ligne est NaN
+            if j == ncol:
+                continue
+            # remplacement des colonnes de gauche
+            img[i, 0:j, k] = img[i, j, k]
+
+            while not np.isnan(img[i, j, k]):
+                j += 1
+            # remplacement des colonnes de droite
+            img[i, j:ncol, k] = img[i, j-1, k]
+
+        # remplacement des lignes
+        for j in np.arange(ncol):
+            i = 0
+            while i < nlig and np.isnan(img[i, j, k]):
+                i += 1
+            # toute la colonne est NaN
+            if i == nlig:
+                continue
+            # remplacement des lignes du haut
+            img[0:i, j, k] = img[i, j, k]
+
+            while not np.isnan(img[i, j, k]):
+                i += 1
+            # remplacement des colonnes de droite
+            img[i:nlig, j, k] = img[i-1, j, k]
+    
+    return img
+
+
+
+
 def calculer_phi(u, v, l, cfg, est_uu=False):
     """
     D'après la formule (2.2).
@@ -27,50 +71,64 @@ def calculer_phi(u, v, l, cfg, est_uu=False):
         Demi-côté de la vignette carrée.
     cfg : Namespace
     """
-    print("calculer phi…")
-    nlig, ncol = u.shape
 
+    nlig, ncol = u.shape
+    demi_b = cfg.b // 2
+    
     # résultat
     phi_uvl = np.nan * np.ones((nlig, ncol, cfg.b**2))
 
     # images filtrées
-#    u_rho = gaussian_filter(u, cfg.sigma)
-#    v_rho = gaussian_filter(v, cfg.sigma)
-    u_rho = np.copy(u)
-    v_rho = np.copy(v)
+    u_rho = gaussian_filter(u, cfg.sigma)
+    v_rho = gaussian_filter(v, cfg.sigma)
+
     # calcul pixellien
     for xi in np.arange(nlig):
 #        print(xi)
         for xj in np.arange(ncol):
-            try:
-                if cfg.metrique == "l2":
-                    uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
-                elif cfg.metrique == "ratio":
-                    uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
-                elif cfg.metrique == "correlation":
-                    uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
-                k = 0
-                for m in np.arange(cfg.b):
-                    for n in np.arange(cfg.b):
-                        yi = xi + m - cfg.b // 2
-                        yj = xj + n - cfg.b // 2
-                        if not est_uu or (est_uu and not (yi == xi and yj == xj)):
-                            if cfg.metrique == "l2":
-                                vv = v[yi-l:yi+l+1, yj-l:yj+l+1] - v_rho[yi, yj]
-                                phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
-                            elif cfg.metrique == "ratio":
-                                vv = v[yi-l:yi+l+1, yj-l:yj+l+1] * (u_rho[xi, xj] / v_rho[yi, yj])
-                                phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
-                            elif cfg.metrique == "correlation":
-                                vv = v[yi-l:yi+l+1, yj-l:yj+l+1]
-                                phi_uvl[xi, xj, k] = np.sum(uu * vv) / (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv)))
+
+            # test aux limites
+            if xi-l < 0 or nlig <= xi+l or xj-l < 0 or ncol <= xj+l:
+                continue
+            
+            # voisinage de x
+            if cfg.metrique == "l2":
+                uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
+            elif cfg.metrique == "ratio":
+                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
+            elif cfg.metrique == "correlation":
+                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]                    
+            k = 0
+            for m in np.arange(-demi_b, demi_b + 1):
+                for n in np.arange(-demi_b, demi_b + 1):
+                    yi = xi + m
+                    yj = xj + n
+                    
+                    # test aux limites
+                    if yi-l < 0 or nlig <= yi+l or yj-l < 0 or ncol <= yj+l:
                         k += 1
-#                        if xi == 10 and xj == 10:
-#                            print(f"{xi} {xj} {yi} {yj}")
- #               exit()
-            except ValueError:
-                pass
-    print("calculer phi done")
+                        continue
+                    
+                    # voisinage de y
+                    vv = v[yi-l:yi+l+1, yj-l:yj+l+1]
+
+                    # calcul de la distance
+                    if not est_uu or (est_uu and not (yi == xi and yj == xj)):
+                        if cfg.metrique == "l2":
+                            vv = vv - v_rho[yi, yj]
+                            phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
+                        elif cfg.metrique == "ratio":
+                            vv = vv * (u_rho[xi, xj] / v_rho[yi, yj])
+                            phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
+                        elif cfg.metrique == "correlation":
+                            phi_uvl[xi, xj, k] = (
+                                np.sum(uu * vv) /
+                                (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv))
+                                 )
+                            )
+                    k += 1
+
+    phi_uvl = gerer_bords(phi_uvl)
     return phi_uvl
 
 
@@ -99,7 +157,7 @@ def calculer_pfas(cfg, im1, im2, ican):
         nlig, ncol, ncan = phi_uul.shape
         for n in np.arange(ncan):
             iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
-        exit()
+
         # calcul de φ(u, v, l)
         phi_uvl = calculer_phi(im1, im2, l, cfg)
 
@@ -161,7 +219,7 @@ def calculer_pfal(kd, lambda_n, nlig, ncol):
             for k in np.arange(kd[i, j] + 1):
 #                print(k, lambda_n)
                 pfal[i, j] += (
-                    (lambda_n)**k / np.math.factorial(k) * np.exp(-lambda_n)
+                    (lambda_n)**k / factorial(k) * np.exp(-lambda_n)
                 )
             pfal[i, j] = 1 - pfal[i, j]
     return pfal
@@ -257,6 +315,7 @@ def normaliser_image(rgb):
     rgb = np.array(rgb, dtype=np.uint8)
     return rgb
 
+
 def ndvi_index_map(cfg, img):
     """
     If the image contains 4 channels, we assume it is a Sentinel-1 image with
@@ -309,6 +368,7 @@ def main():
         iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
         iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
 
+    print(img_ndvi1)
     # NDVI filtering if any
 #    h_uv = np.ones((nlig, ncol, 1))
     if img_ndvi1 is not None:
