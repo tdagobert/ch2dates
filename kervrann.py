@@ -12,6 +12,7 @@ import numpy as np
 import iio
 from scipy.ndimage import gaussian_filter
 from scipy.special import factorial
+from matplotlib import cm
 
 def gerer_bords(img):
     """
@@ -299,24 +300,43 @@ def lit_parametres():
         "--ndvi-threshold", type=float, required=False, default=0.1,
         help="NDVI seuil."
     )
+    parser.add_argument(
+        "--ndwi-threshold", type=float, required=False, default=0.5,
+        help="NDWI seuil."
+    )
+    
 
     cfg = parser.parse_args()
 
     return cfg
 
 
-def normaliser_image(rgb):
+def normaliser_image(img):
     """
     …
     """
-    mini = np.min(rgb)
-    maxi = np.max(rgb)
-    rgb = 255 * (rgb - mini) / (maxi - mini)
-    rgb = np.array(rgb, dtype=np.uint8)
-    return rgb
+    mini = np.min(img)
+    maxi = np.max(img)
+    img = 255 * (img - mini) / (maxi - mini)
+    img = np.array(img, dtype=np.uint8)
+    return img
 
 
-def ndvi_index_map(cfg, img):
+def calorifier_image(img, apply_log=True):
+    if apply_log:
+        img = np.log(img)
+        mini = np.min(img)
+        maxi = np.max(img)
+
+        img = 1.0 * (img - mini) / (maxi - mini)
+        img = img.squeeze()
+        img = np.uint8(255.0 * cm.jet(img))
+        img = img[:, :, 0:3]
+
+    return img
+
+
+def compute_index_maps(cfg, img):
     """
     If the image contains 4 channels, we assume it is a Sentinel-1 image with
     the B04, B03, B02, B08 channels storage in this order. We retrieve the
@@ -329,13 +349,25 @@ def ndvi_index_map(cfg, img):
         ndvi = (img[:, :, 3] - img[:, :, 0]) / (img[:, :, 3] + img[:, :, 0])
         ndvi = np.expand_dims(ndvi, axis=-1)
         # we normalize
-        r_can = 255 * np.ones((nlig, ncol, 1))
-        g_can = 255 * (1 - (ndvi + 1) / 2)
-        img_ndvi = np.concatenate((g_can, r_can, g_can), axis=2)
+        img_ndvi = normaliser_image(ndvi)
+#        g_can = 255 * np.ones((nlig, ncol, 1))
+#        can = 255 * (1 - (ndvi + 1) / 2)
+#        img_ndvi = np.concatenate((can, g_can, can), axis=2)
+
+        # we compute the NDWI index, where values stand in [-1, +1]
+        ndwi = (img[:, :, 1] - img[:, :, 3]) / (img[:, :, 1] + img[:, :, 3])
+        ndwi = np.expand_dims(ndwi, axis=-1)
+        # we normalize
+        img_ndwi = normaliser_image(ndwi)
+#        b_can = 255 * np.ones((nlig, ncol, 1))
+#        can = 255 * (1 - (ndwi + 1) / 2)
+#        img_ndwi = np.concatenate((can, can, b_can), axis=2)
+
         img = img[:, :, 0:3]
-        return img, img_ndvi, ndvi
+        
+        return img, img_ndvi, ndvi, img_ndwi, ndwi
     else:
-        return img, None, None
+        return img, None, None, None, None
 
 
 def main():
@@ -351,8 +383,8 @@ def main():
     if not exists(cfg.repout):
         os.mkdir(cfg.repout)
 
-    im1, img_ndvi1, ndvi1 = ndvi_index_map(cfg, im1)
-    im2, img_ndvi2, ndvi2 = ndvi_index_map(cfg, im2)
+    im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
+    im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
 
     nlig, ncol, _ = im1.shape
     im1 = np.mean(im1, axis=2)
@@ -366,24 +398,38 @@ def main():
         h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
         h_uv = normaliser_image(h_uv)
         iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
+        pfal = calorifier_image(pfal)
         iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
 
     print(img_ndvi1)
     # NDVI filtering if any
 #    h_uv = np.ones((nlig, ncol, 1))
     if img_ndvi1 is not None:
-        iio.write(join(cfg.repout, "ndvi1.png"), img_ndvi1)
+#        iio.write(join(cfg.repout, "ndvi1.png"), img_ndvi1)
         iio.write(join(cfg.repout, "ndvi2.png"), img_ndvi2)
-#        iio.write(join(cfg.repout, "ndvi2.tif"), ndvi2)
+#        iio.write(join(cfg.repout, "ndwi1.png"), img_ndwi1)
+        iio.write(join(cfg.repout, "ndwi2.png"), img_ndwi2)
+        
+#        iio.write(join(cfg.repout, "ndvi1.tif"), ndvi1)
+#        iio.write(join(cfg.repout, "ndwi1.tif"), ndwi1)
         # L'idée est de supprimer tous les changements qui sont du type
         # végétation--> végétation ou du type non-végétation--> végétation.
         # i.e. dès que im2 est végétation
+        # Roughly the NDVI index caracterizes dense vegetation for values > 0.1
         img_veget = ndvi2 > cfg.ndvi_threshold
         img_veget = img_veget.squeeze()
 #        iio.write(join(cfg.repout, f"veget.tif"), img_veget)
-        h_uv[img_veget] = 0
-        iio.write(join(cfg.repout, f"huvl_seuille.png"), h_uv)
-
+        himg = np.copy(h_uv)
+        himg[img_veget] = 0
+        iio.write(join(cfg.repout, f"huvl_ndvi.png"), himg)
+        # Roughly the NDWI index caracterizes water for values >= 0.5
+        # custom-scripts.sentinel-hub.com/custom-scripts/sentinel-2/ndwi/
+        img_water = ndwi2 >= cfg.ndwi_threshold
+        img_water = img_water.squeeze()        
+        himg = np.copy(h_uv)
+        himg[img_water] = 0
+        iio.write(join(cfg.repout, f"huvl_ndwi.png"), himg)
+        
     return 0
 
 
