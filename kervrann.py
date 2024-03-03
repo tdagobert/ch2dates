@@ -311,14 +311,21 @@ def lit_parametres():
     return cfg
 
 
-def normaliser_image(img):
+def normaliser_image(img, sat=None):
     """
     …
     """
-    mini = np.min(img)
-    maxi = np.max(img)
+    if sat is None:
+        mini = np.min(img)
+        maxi = np.max(img)
+    else:
+        val = np.sort(img.flatten())
+        mini = val[int(sat*val.size)]
+        maxi = val[int((1-sat)*val.size)]
     img = 255 * (img - mini) / (maxi - mini)
-    img = np.array(img, dtype=np.uint8)
+    print("shape",img.shape)
+
+    img = np.array(img, dtype=np.uint8)    
     return img
 
 
@@ -386,6 +393,13 @@ def main():
     im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
     im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
 
+    iio.write(
+        join(cfg.repout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
+    )
+    iio.write(
+        join(cfg.repout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
+    )
+    exit()
     nlig, ncol, _ = im1.shape
     im1 = np.mean(im1, axis=2)
     im1 = im1.reshape(nlig, ncol, 1)
