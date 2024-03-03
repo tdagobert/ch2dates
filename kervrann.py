@@ -399,7 +399,7 @@ def main():
     iio.write(
         join(cfg.repout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
     )
-    exit()
+
     nlig, ncol, _ = im1.shape
     im1 = np.mean(im1, axis=2)
     im1 = im1.reshape(nlig, ncol, 1)
