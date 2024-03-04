@@ -14,6 +14,10 @@ from scipy.ndimage import gaussian_filter
 from scipy.special import factorial
 from matplotlib import cm
 import timeit
+import numba as nb
+from numba import njit
+
+@njit
 def gerer_bords(img):
     """
     Remplacement des valeurs NaN situées sur les bords, par les valeurs
@@ -57,9 +61,8 @@ def gerer_bords(img):
     return img
 
 
-
-
-def calculer_phi(u, v, l, cfg, est_uu=False):
+@njit
+def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
     """
     D'après la formule (2.2).
     Paramètres
@@ -74,14 +77,14 @@ def calculer_phi(u, v, l, cfg, est_uu=False):
     """
 
     nlig, ncol = u.shape
-    demi_b = cfg.b // 2
+    demi_b = b // 2
     
     # résultat
-    phi_uvl = np.nan * np.ones((nlig, ncol, cfg.b**2))
+    phi_uvl = np.nan * np.ones((nlig, ncol, b**2))
 
     # images filtrées
-    u_rho = gaussian_filter(u, cfg.sigma)
-    v_rho = gaussian_filter(v, cfg.sigma)
+#    u_rho = gaussian_filter(u, sigma)
+#    v_rho = gaussian_filter(v, sigma)
 
     # calcul pixellien
     for xi in np.arange(nlig):
@@ -93,11 +96,11 @@ def calculer_phi(u, v, l, cfg, est_uu=False):
                 continue
             
             # voisinage de x
-            if cfg.metrique == "l2":
+            if metrique == "l2":
                 uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
-            elif cfg.metrique == "ratio":
+            elif metrique == "ratio":
                 uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
-            elif cfg.metrique == "correlation":
+            elif metrique == "correlation":
                 uu = u[xi-l:xi+l+1, xj-l:xj+l+1]                    
             k = 0
             for m in np.arange(-demi_b, demi_b + 1):
@@ -115,13 +118,13 @@ def calculer_phi(u, v, l, cfg, est_uu=False):
 
                     # calcul de la distance
                     if not est_uu or (est_uu and not (yi == xi and yj == xj)):
-                        if cfg.metrique == "l2":
+                        if metrique == "l2":
                             vv = vv - v_rho[yi, yj]
                             phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
-                        elif cfg.metrique == "ratio":
+                        elif metrique == "ratio":
                             vv = vv * (u_rho[xi, xj] / v_rho[yi, yj])
                             phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
-                        elif cfg.metrique == "correlation":
+                        elif metrique == "correlation":
                             phi_uvl[xi, xj, k] = (
                                 np.sum(uu * vv) /
                                 (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv))
@@ -131,6 +134,20 @@ def calculer_phi(u, v, l, cfg, est_uu=False):
 
     phi_uvl = gerer_bords(phi_uvl)
     return phi_uvl
+
+
+# alt@njit
+# altdef compute_tau_l_mean(phi_uul):
+# alt    nlig, ncol, _ = phi_uul.shape
+# alt    tau_l_mean = nb.typed.List.empty_list(nb.f8)
+# alt    for i in np.arange(nlig):
+# alt        for j in np.arange(ncol):
+# alt            # recherche du minimum sur le voisinage b(x)
+# alt            tau_l_mean.append(np.nanmin(phi_uul[i, j, :]))
+# alt
+# alt    tau_l_mean = np.nanmean(np.array(tau_l_mean))
+# alt
+# alt    return tau_l_mean
 
 
 def calculer_pfas(cfg, im1, im2, ican):
@@ -153,14 +170,21 @@ def calculer_pfas(cfg, im1, im2, ican):
     for l in np.arange(1, cfg.scale+1):
         print(f"Échelle {l}")
         # calcul de φ(u, u, l)
-        phi_uul = calculer_phi(im1, im1, l, cfg, est_uu=True)
+        im1_rho = gaussian_filter(im1, cfg.sigma)
+        phi_uul = calculer_phi(
+            im1, im1, im1_rho, im1_rho, l,
+            cfg.b, cfg.sigma, cfg.metrique, est_uu=True
+        )
         print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
         for n in np.arange(ncan):
             iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
 
         # calcul de φ(u, v, l)
-        phi_uvl = calculer_phi(im1, im2, l, cfg)
+        im2_rho = gaussian_filter(im2, cfg.sigma)        
+        phi_uvl = calculer_phi(
+            im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metrique
+        )
 
         # calcul de τ_mean(l) d'après (5.1)
         tau_l_mean = []
@@ -172,6 +196,8 @@ def calculer_pfas(cfg, im1, im2, ican):
                 except ValueError:
                     pass
         tau_l_mean = np.nanmean(np.array(tau_l_mean))
+#        exit() 
+#        tau_l_mean =compute_tau_l_mean(phi_uul)
         print(f"# calcul de τ_mean(l) d'après (5.1) {tau_l_mean:3.5e}")
 
         # calcul de τ(u, l) d'après (5.1)
