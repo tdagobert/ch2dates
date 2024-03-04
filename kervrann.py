@@ -13,7 +13,7 @@ import iio
 from scipy.ndimage import gaussian_filter
 from scipy.special import factorial
 from matplotlib import cm
-
+import timeit
 def gerer_bords(img):
     """
     Remplacement des valeurs NaN situées sur les bords, par les valeurs
@@ -448,7 +448,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    execution_time = timeit.timeit(main, number=1)
+    print(f"Execution time: {execution_time:.6f} seconds")
+    #main()
 
     #Lignes de commandes
     # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation --repout mcor_s2_b3_eps1_sig0.8
