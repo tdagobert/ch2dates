@@ -461,6 +461,8 @@ def main():
 #        iio.write(join(cfg.repout, f"veget.tif"), img_veget)
         himg = np.copy(h_uv)
         himg[img_veget] = 0
+        img_veget = np.array(255 * img_veget, dtype=np.uint8)
+        iio.write(join(cfg.repout, f"ndvi_filtre.png"), img_veget)
         iio.write(join(cfg.repout, f"huvl_ndvi.png"), himg)
         # Roughly the NDWI index caracterizes water for values >= 0.5
         # custom-scripts.sentinel-hub.com/custom-scripts/sentinel-2/ndwi/
@@ -468,6 +470,9 @@ def main():
         img_water = img_water.squeeze()        
         himg = np.copy(h_uv)
         himg[img_water] = 0
+
+        img_water = np.array(255 * img_water, dtype=np.uint8)
+        iio.write(join(cfg.repout, f"ndwi_filtre.png"), img_water)        
         iio.write(join(cfg.repout, f"huvl_ndwi.png"), himg)
         
     return 0
