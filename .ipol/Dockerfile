@@ -2,8 +2,8 @@
 FROM registry.ipol.im/ipol:v1-py3.9
 
 # install additional debian packages
-COPY .ipol/packages.txt packages.txt
-RUN apt-get update && apt-get install -y $(cat packages.txt) && rm -rf /var/lib/apt/lists/* && rm packages.txt
+#COPY .ipol/packages.txt packages.txt
+#RUN apt-get update && apt-get install -y $(cat packages.txt) && rm -rf /var/lib/apt/lists/* && rm packages.txt
 
 # copy the requirements.txt and install python packages
 COPY requirements.txt requirements.txt
