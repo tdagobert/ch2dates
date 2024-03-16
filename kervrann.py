@@ -341,6 +341,7 @@ def normaliser_image(img, sat=None):
     """
     …
     """
+    # convertir en float
     if sat is None:
         mini = np.min(img)
         maxi = np.max(img)
@@ -348,7 +349,10 @@ def normaliser_image(img, sat=None):
         val = np.sort(img.flatten())
         mini = val[int(sat*val.size)]
         maxi = val[int((1-sat)*val.size)]
+        # remplacer les valeurs < mini ou > maxi par mini et maxi ... np.clip
     img = 255 * (img - mini) / (maxi - mini)
+    img[img>255.0] = 255.0
+    img[img<0.0] = 0.0
     print("shape",img.shape)
 
     img = np.array(img, dtype=np.uint8)    
