@@ -126,6 +126,7 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
                             phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
                         elif metrique == "correlation":
                             phi_uvl[xi, xj, k] = (
+                                1 -
                                 np.sum(uu * vv) /
                                 (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv))
                                  )
@@ -178,13 +179,16 @@ def calculer_pfas(cfg, im1, im2, ican):
         print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
         for n in np.arange(ncan):
-            iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
+            iio.write(join(cfg.repout, f"phi_uul_{l:03}.tif"), phi_uul[:, :, n])
 
         # calcul de φ(u, v, l)
         im2_rho = gaussian_filter(im2, cfg.sigma)        
         phi_uvl = calculer_phi(
             im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metrique
         )
+        print(f"Échelle {l}", ncan)
+        for n in np.arange(ncan):
+            iio.write(join(cfg.repout, f"phi_uvl_{l:03}.tif"), phi_uvl[:, :, n])
 
         # calcul de τ_mean(l) d'après (5.1)
         tau_l_mean = []
@@ -211,7 +215,7 @@ def calculer_pfas(cfg, im1, im2, ican):
 
                 except ValueError:
                     pass
-#        iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
+        iio.write(join(cfg.repout, f"tau_ul_s{l:03}.tif"), tau_ul)
         print("# calcul de τ(u, l) d'après (5.1)")
         # calcul de S_Nl
         S_Nl = np.zeros((nlig, ncol))
@@ -221,16 +225,18 @@ def calculer_pfas(cfg, im1, im2, ican):
                     S_Nl[i, j] = np.sum(phi_uvl[i, j, :] >= tau_ul[i, j])
                 except ValueError:
                     pass
-#        iio.write(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
+        iio.write(join(cfg.repout, f"snl_{l:03}.tif"), S_Nl)
         # calcul de decision_l d'après (4.1)
         decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
         decisions += [decision_l]
+        iio.write(join(cfg.repout, f"dec_{l:03}.tif"), decision_l)
 
         # calcul de pfa_l
         pfa_l =  np.nanmean(np.exp(S_Nl - (cfg.b * cfg.b)))
         pfas += [pfa_l]
 
     decisions = np.array(decisions)
+    print("decision shape", decisions.shape)
     pfas = np.array(pfas)
     return pfas, decisions
 
@@ -440,6 +446,9 @@ def main():
     nlig, ncol, ncan = im1.shape
     for n in np.arange(ncan):
         h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
+        iio.write(join(cfg.repout, f"huvl_c{n}.tif"), h_uv)
+        iio.write(join(cfg.repout, f"pfal_c{n}.tif"), pfal)
+
         h_uv = normaliser_image(h_uv)
         iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
         pfal = calorifier_image(pfal)
