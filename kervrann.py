@@ -9,14 +9,13 @@ import os
 from os.path import exists, join
 import argparse
 import numpy as np
-# import iio
+import iio
 from scipy.ndimage import gaussian_filter
 from scipy.special import factorial
 from matplotlib import cm
 import timeit
 import numba as nb
 from numba import njit
-import imageio as iio
 
 @njit
 def gerer_bords(img):
@@ -172,13 +171,15 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
 # alt    return tau_l_mean
 
 
-def calculer_pfas(cfg, im1, im2, ican):
+def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
     """
     Paramètres
     ----------
     cfg: Namespace
     im1: np.array(nlig, ncol)
     im2: np.array(nlig, ncol)
+    ante1: np.array ndim=(nlig, ncol)
+    ante2: np.array ndim=(nlig, ncol)
     ican: int
     Retour
     ------
@@ -186,25 +187,29 @@ def calculer_pfas(cfg, im1, im2, ican):
     pfas: np.array(L, nlig, ncol)
     """
 
+    
     nlig, ncol = im1.shape
     pfas = []
     decisions = []
+    im1_rho = gaussian_filter(im1, cfg.sigma)
+    im2_rho = gaussian_filter(im2, cfg.sigma)        
+    ante1_rho = gaussian_filter(ante1, cfg.sigma)
+    ante2_rho = gaussian_filter(ante2, cfg.sigma)
+    
     for l in np.arange(1, cfg.scale+1):
 #    for l in [cfg.scale]:
         print(f"Échelle {l}")
         # calcul de φ(u, u, l)
-        im1_rho = gaussian_filter(im1, cfg.sigma)
         phi_uul = calculer_phi(
-            im1, im1, im1_rho, im1_rho, l,
-            cfg.b, cfg.sigma, cfg.metrique, est_uu=True
+            ante1, ante2, ante1_rho, ante2_rho, l,
+            cfg.b, cfg.sigma, cfg.metrique, est_uu=False
         )
         print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
         for n in np.arange(ncan):
-            iio.imwrite(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
+            iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
 
         # calcul de φ(u, v, l)
-        im2_rho = gaussian_filter(im2, cfg.sigma)        
         phi_uvl = calculer_phi(
             im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metrique
         )
@@ -234,7 +239,7 @@ def calculer_pfas(cfg, im1, im2, ican):
 
                 except ValueError:
                     pass
-#        iio.imwrite(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
+#        iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
         print("# calcul de τ(u, l) d'après (5.1)")
         # calcul de S_Nl
         S_Nl = np.zeros((nlig, ncol))
@@ -244,7 +249,7 @@ def calculer_pfas(cfg, im1, im2, ican):
                     S_Nl[i, j] = np.sum(phi_uvl[i, j, :] >= tau_ul[i, j])
                 except ValueError:
                     pass
-#        iio.imwrite(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
+#        iio.write(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
         # calcul de decision_l d'après (4.1)
         decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
         decisions += [decision_l]
@@ -283,16 +288,18 @@ def calculer_alpha(epsilon, nlig, ncol, pfal):
     return alpha
 
 
-def algorithme(cfg, im1, im2, ican):
+def algorithme(cfg, im1, im2, ante1, ante2, ican):
     """
     cfg: Namespace
     im1: np.array ndim=(nlig, ncol)
     im2: np.array ndim=(nlig, ncol)
+    ante1: np.array ndim=(nlig, ncol)
+    ante2: np.array ndim=(nlig, ncol)
     ican : int
         Index du canal.
     """
     nlig, ncol = im1.shape
-    pfas, decisions = calculer_pfas(cfg, im1, im2, ican)
+    pfas, decisions = calculer_pfas(cfg, im1, im2, ante1, ante2, ican)
     lambda_n = np.sum(np.array(pfas))
     print(f"lambda_n {lambda_n}")
     # calcul de kd
@@ -322,6 +329,13 @@ def lit_parametres():
     parser.add_argument(
         "--image2", type=str, required=True, help="Second image."
     )
+    parser.add_argument(
+        "--ante1", type=str, required=True, help="Ante First image."
+    )
+    parser.add_argument(
+        "--ante2", type=str, required=True, help="Ante Second image."
+    )
+    
     parser.add_argument(
         "--scale", type=int, required=False, help="Nombre d'échelles."
         , default=2
@@ -437,19 +451,21 @@ def main():
 
     cfg = lit_parametres()
 
-    im1 = iio.imread(cfg.image1)
-    im2 = iio.imread(cfg.image2)
-
+    im1 = iio.read(cfg.image1)
+    im2 = iio.read(cfg.image2)
+    ante1 = iio.read(cfg.ante1)
+    ante2 = iio.read(cfg.ante2)
+    
     if not exists(cfg.repout):
         os.mkdir(cfg.repout)
 
     im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
     im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
 
-    iio.imwrite(
+    iio.write(
         join(cfg.repout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
     )
-    iio.imwrite(
+    iio.write(
         join(cfg.repout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
     )
 
@@ -460,37 +476,45 @@ def main():
     im2 = np.mean(im2, axis=2)
     im2 = im2.reshape(nlig, ncol, 1)
 
+    ante1 = np.mean(ante1, axis=2)
+    ante1 = ante1.reshape(nlig, ncol, 1)
+
+    ante2 = np.mean(ante2, axis=2)
+    ante2 = ante2.reshape(nlig, ncol, 1)
+    
     nlig, ncol, ncan = im1.shape
     for n in np.arange(ncan):
-        h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
+        h_uv, pfal = algorithme(
+            cfg, im1[:, :, n], im2[:, :, n], ante1[:, :, n], ante2[:, :, n], n
+        )
         h_uv = normaliser_image(h_uv)
-        iio.imwrite(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
+        iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
         pfal = calorifier_image(pfal)
-        iio.imwrite(join(cfg.repout, f"pfal_c{n}.png"), pfal)
+        iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
 
     print(img_ndvi1)
     # NDVI filtering if any
 #    h_uv = np.ones((nlig, ncol, 1))
     if img_ndvi1 is not None:
-#        iio.imwrite(join(cfg.repout, "ndvi1.png"), img_ndvi1)
-        iio.imwrite(join(cfg.repout, "ndvi2.png"), img_ndvi2)
-#        iio.imwrite(join(cfg.repout, "ndwi1.png"), img_ndwi1)
-        iio.imwrite(join(cfg.repout, "ndwi2.png"), img_ndwi2)
+#        iio.write(join(cfg.repout, "ndvi1.png"), img_ndvi1)
+        iio.write(join(cfg.repout, "ndvi2.png"), img_ndvi2)
+#        iio.write(join(cfg.repout, "ndwi1.png"), img_ndwi1)
+        iio.write(join(cfg.repout, "ndwi2.png"), img_ndwi2)
         
-#        iio.imwrite(join(cfg.repout, "ndvi1.tif"), ndvi1)
-#        iio.imwrite(join(cfg.repout, "ndwi1.tif"), ndwi1)
+#        iio.write(join(cfg.repout, "ndvi1.tif"), ndvi1)
+#        iio.write(join(cfg.repout, "ndwi1.tif"), ndwi1)
         # L'idée est de supprimer tous les changements qui sont du type
         # végétation--> végétation ou du type non-végétation--> végétation.
         # i.e. dès que im2 est végétation
         # Roughly the NDVI index caracterizes dense vegetation for values > 0.1
         img_veget = ndvi2 > cfg.ndvi_threshold
         img_veget = img_veget.squeeze()
-#        iio.imwrite(join(cfg.repout, f"veget.tif"), img_veget)
+#        iio.write(join(cfg.repout, f"veget.tif"), img_veget)
         himg = np.copy(h_uv)
         himg[img_veget] = 0
         img_veget = np.array(255 * img_veget, dtype=np.uint8)
-        iio.imwrite(join(cfg.repout, f"ndvi_filtre.png"), img_veget)
-        iio.imwrite(join(cfg.repout, f"huvl_ndvi.png"), himg)
+        iio.write(join(cfg.repout, f"ndvi_filtre.png"), img_veget)
+        iio.write(join(cfg.repout, f"huvl_ndvi.png"), himg)
         # Roughly the NDWI index caracterizes water for values >= 0.5
         # custom-scripts.sentinel-hub.com/custom-scripts/sentinel-2/ndwi/
         img_water = ndwi2 >= cfg.ndwi_threshold
@@ -499,8 +523,8 @@ def main():
         himg[img_water] = 0
 
         img_water = np.array(255 * img_water, dtype=np.uint8)
-        iio.imwrite(join(cfg.repout, f"ndwi_filtre.png"), img_water)        
-        iio.imwrite(join(cfg.repout, f"huvl_ndwi.png"), himg)
+        iio.write(join(cfg.repout, f"ndwi_filtre.png"), img_water)        
+        iio.write(join(cfg.repout, f"huvl_ndwi.png"), himg)
         
     return 0
 
@@ -513,3 +537,10 @@ if __name__ == "__main__":
     #Lignes de commandes
     # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation --repout mcor_s2_b3_eps1_sig0.8
     # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique ratio --repout mrat_s2_b3_eps1_sig0.8
+# python kervrann.py \
+#     --image1 2018-07-12_S2B_orbit_008_tile_31TDF_L1C_band_RGBI.tif \
+#     --image2 2019-01-03_S2A_orbit_008_tile_31TDF_L1C_band_RGBI.tif \
+#     --ante1 2017-07-12_S2A_orbit_008_tile_31TDF_L1C_band_RGBI.tif \
+#     --ante2 2018-01-18_S2A_orbit_008_tile_31TDF_L1C_band_RGBI.tif \
+#     --metrique lin --scale 6 --b 2 --repout multiscale;
+# 
