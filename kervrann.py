@@ -204,15 +204,20 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
             ante1, ante2, ante1_rho, ante2_rho, l,
             cfg.b, cfg.sigma, cfg.metrique, est_uu=False
         )
-        print(phi_uul.shape)
+        #print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
-        for n in np.arange(ncan):
-            iio.write(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
+
+        if cfg.debug:
+            for n in np.arange(ncan):
+                iio.write(join(cfg.repout, f"phi_uul{l}_{n:03}.tif"), phi_uul[:, :, n])
 
         # calcul de φ(u, v, l)
         phi_uvl = calculer_phi(
             im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metrique
         )
+        if cfg.debug:
+            for n in np.arange(ncan):
+                iio.write(join(cfg.repout, f"phi_uvl{l}_{n:03}.tif"), phi_uvl[:, :, n])
 
         # calcul de τ_mean(l) d'après (5.1)
         tau_l_mean = []
@@ -224,9 +229,10 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
                 except ValueError:
                     pass
         tau_l_mean = np.nanmean(np.array(tau_l_mean))
+
 #        exit() 
 #        tau_l_mean =compute_tau_l_mean(phi_uul)
-        print(f"# calcul de τ_mean(l) d'après (5.1) {tau_l_mean:3.5e}")
+        print(f"# calcul d'après (5.1) de τ_mean({l}) {tau_l_mean:3.5e}")
 
         # calcul de τ(u, l) d'après (5.1)
         tau_ul = np.zeros((nlig, ncol))
@@ -239,7 +245,9 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
 
                 except ValueError:
                     pass
-#        iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
+        if cfg.debug:
+            iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
+            
         print("# calcul de τ(u, l) d'après (5.1)")
         # calcul de S_Nl
         S_Nl = np.zeros((nlig, ncol))
@@ -249,7 +257,9 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
                     S_Nl[i, j] = np.sum(phi_uvl[i, j, :] >= tau_ul[i, j])
                 except ValueError:
                     pass
-#        iio.write(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
+        if cfg.debug:
+            iio.write(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
+            
         # calcul de decision_l d'après (4.1)
         decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
         decisions += [decision_l]
@@ -367,7 +377,10 @@ def lit_parametres():
         "--ndwi-threshold", type=float, required=False, default=0.5,
         help="NDWI seuil."
     )
-    
+    parser.add_argument(
+        "--debug", type=bool, required=False, default=False,
+        help="NDWI seuil."
+    )
 
     cfg = parser.parse_args()
 
@@ -390,7 +403,7 @@ def normaliser_image(img, sat=None):
     img = 255 * (img - mini) / (maxi - mini)
     img[img>255.0] = 255.0
     img[img<0.0] = 0.0
-    print("shape",img.shape)
+    #print("shape",img.shape)
 
     img = np.array(img, dtype=np.uint8)    
     return img
@@ -450,7 +463,7 @@ def main():
     """
 
     cfg = lit_parametres()
-
+    print(cfg.debug)
     im1 = iio.read(cfg.image1)
     im2 = iio.read(cfg.image2)
     ante1 = iio.read(cfg.ante1)
@@ -462,6 +475,12 @@ def main():
     im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
     im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
 
+    iio.write(
+        join(cfg.repout, "ante1.png"), normaliser_image(np.copy(ante1), sat=0.001)
+    )
+    iio.write(
+        join(cfg.repout, "ante2.png"), normaliser_image(np.copy(ante2), sat=0.001)
+    )
     iio.write(
         join(cfg.repout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
     )
@@ -481,6 +500,11 @@ def main():
 
     ante2 = np.mean(ante2, axis=2)
     ante2 = ante2.reshape(nlig, ncol, 1)
+
+    iio.write(join(cfg.repout, "ante1.tif"), ante1)
+    iio.write(join(cfg.repout, "ante2.tif"), ante2)
+    iio.write(join(cfg.repout, "im1.tif"), im1)
+    iio.write(join(cfg.repout, "im2.tif"), im2)
     
     nlig, ncol, ncan = im1.shape
     for n in np.arange(ncan):
@@ -492,7 +516,7 @@ def main():
         pfal = calorifier_image(pfal)
         iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
 
-    print(img_ndvi1)
+    #print(img_ndvi1)
     # NDVI filtering if any
 #    h_uv = np.ones((nlig, ncol, 1))
     if img_ndvi1 is not None:
