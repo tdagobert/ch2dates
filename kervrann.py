@@ -425,9 +425,10 @@ def calorifier_image(img, apply_log=True):
 
 def compute_index_maps(cfg, img):
     """
-    If the image contains 4 channels, we assume it is a Sentinel-1 image with
+    If the image contains 4 channels, we assume it is a Sentinel-2 image with
     the B04, B03, B02, B08 channels storage in this order. We retrieve the
     B08 to compute the NDVI index…
+
     """
     nlig, ncol, ncan = img.shape
 
@@ -472,9 +473,12 @@ def main():
     if not exists(cfg.repout):
         os.mkdir(cfg.repout)
 
+    # suppression du canal B02 si besoin
     im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
     im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
-
+    ante1, _, _, _, _ = compute_index_maps(cfg, ante1)
+    ante2, _, _, _, _ = compute_index_maps(cfg, ante2)    
+    
     iio.write(
         join(cfg.repout, "ante1.png"), normaliser_image(np.copy(ante1), sat=0.001)
     )
@@ -487,7 +491,8 @@ def main():
     iio.write(
         join(cfg.repout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
     )
-
+    print(im1.shape, im2.shape, ante1.shape, ante2.shape)
+    assert im1.shape == im2.shape and im1.shape == ante1.shape
     nlig, ncol, _ = im1.shape
     im1 = np.mean(im1, axis=2)
     im1 = im1.reshape(nlig, ncol, 1)
@@ -501,6 +506,8 @@ def main():
     ante2 = np.mean(ante2, axis=2)
     ante2 = ante2.reshape(nlig, ncol, 1)
 
+    im2[200, 200, 0] = 2 * im2[200, 200, 0]
+    
     iio.write(join(cfg.repout, "ante1.tif"), ante1)
     iio.write(join(cfg.repout, "ante2.tif"), ante2)
     iio.write(join(cfg.repout, "im1.tif"), im1)
