@@ -4,17 +4,18 @@
 """
 …
 """
-
 import os
 from os.path import exists, join
+import timeit
 import argparse
+import zipfile
+
 import numpy as np
 import iio
 from scipy.ndimage import gaussian_filter
 from scipy.special import factorial
 from matplotlib import cm
-import timeit
-import numba as nb
+
 from numba import njit
 
 @njit
@@ -25,7 +26,7 @@ def gerer_bords(img):
     """
     nlig, ncol, ncan = img.shape
     for k in np.arange(ncan):
-        
+
         # remplacement des colonnes
         for i in np.arange(nlig):
             j = 0
@@ -57,7 +58,7 @@ def gerer_bords(img):
                 i += 1
             # remplacement des colonnes de droite
             img[i:nlig, j, k] = img[i-1, j, k]
-    
+
     return img
 
 
@@ -78,7 +79,7 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
 
     nlig, ncol = u.shape
     demi_b = b // 2
-    
+
     # résultat
     phi_uvl = np.nan * np.ones((nlig, ncol, b**2))
 
@@ -90,11 +91,11 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
     for xi in np.arange(nlig):
 #        print(xi)
         for xj in np.arange(ncol):
-            
+
             # test aux limites
             if xi-l < 0 or nlig <= xi+l or xj-l < 0 or ncol <= xj+l:
                 continue
-            
+
             # voisinage de x
             if metrique == "l2":
                 uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
@@ -103,21 +104,21 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
             elif metrique == "correlation":
                 uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
             elif metrique == "lin":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]                
+                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
             elif metrique == "zncc":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]                
+                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
                 muu = np.mean(uu)
             k = 0
             for m in np.arange(-demi_b, demi_b + 1):
                 for n in np.arange(-demi_b, demi_b + 1):
                     yi = xi + m
                     yj = xj + n
-                    
+
                     # test aux limites
                     if yi-l < 0 or nlig <= yi+l or yj-l < 0 or ncol <= yj+l:
                         k += 1
                         continue
-                    
+
                     # voisinage de y
                     vv = v[yi-l:yi+l+1, yj-l:yj+l+1]
 
@@ -135,10 +136,10 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
                             phi_uvl[xi, xj, k] = (
                                 max(suu, svv)
                                 * (1 - np.sum(uu * vv)**2 / (suu * svv))
-                            )   
+                            )
                         elif metrique == "correlation":
                             phi_uvl[xi, xj, k] = (
-                                1 
+                                1
                                 - np.sum(uu * vv) /
                                 (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv))
                                  )
@@ -150,7 +151,7 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
                                 - np.sum((uu - muu) * (vv - mvv))
                                 /(vv.size * np.std(uu) * np.std(vv))
                             )
-                                
+
                     k += 1
 
     phi_uvl = gerer_bords(phi_uvl)
@@ -187,29 +188,33 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
     pfas: np.array(L, nlig, ncol)
     """
 
-    
+
     nlig, ncol = im1.shape
     pfas = []
     decisions = []
     im1_rho = gaussian_filter(im1, cfg.sigma)
-    im2_rho = gaussian_filter(im2, cfg.sigma)        
+    im2_rho = gaussian_filter(im2, cfg.sigma)
     ante1_rho = gaussian_filter(ante1, cfg.sigma)
     ante2_rho = gaussian_filter(ante2, cfg.sigma)
-    
+#    print(ante1 == ante2)
+#    print(np.array_equal(ante1, ante2))
+
     for l in np.arange(1, cfg.scale+1):
 #    for l in [cfg.scale]:
         print(f"Échelle {l}")
         # calcul de φ(u, u, l)
         phi_uul = calculer_phi(
-            ante1, ante2, ante1_rho, ante2_rho, l,
-            cfg.b, cfg.sigma, cfg.metrique, est_uu=False
+            ante1, ante2, ante1_rho, ante2_rho, l, cfg.b, cfg.sigma,
+            cfg.metrique, est_uu=cfg.identiques
         )
         #print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
 
         if cfg.debug:
             for n in np.arange(ncan):
-                iio.write(join(cfg.repout, f"phi_uul{l}_{n:03}.tif"), phi_uul[:, :, n])
+                iio.write(
+                    join(cfg.repout, f"phi_uul{l}_{n:03}.tif"), phi_uul[:, :, n]
+                )
 
         # calcul de φ(u, v, l)
         phi_uvl = calculer_phi(
@@ -217,7 +222,9 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
         )
         if cfg.debug:
             for n in np.arange(ncan):
-                iio.write(join(cfg.repout, f"phi_uvl{l}_{n:03}.tif"), phi_uvl[:, :, n])
+                iio.write(
+                    join(cfg.repout, f"phi_uvl{l}_{n:03}.tif"), phi_uvl[:, :, n]
+                )
 
         # calcul de τ_mean(l) d'après (5.1)
         tau_l_mean = []
@@ -230,7 +237,7 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
                     pass
         tau_l_mean = np.nanmean(np.array(tau_l_mean))
 
-#        exit() 
+#        exit()
 #        tau_l_mean =compute_tau_l_mean(phi_uul)
         print(f"# calcul d'après (5.1) de τ_mean({l}) {tau_l_mean:3.5e}")
 
@@ -247,7 +254,7 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
                     pass
         if cfg.debug:
             iio.write(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
-            
+
         print("# calcul de τ(u, l) d'après (5.1)")
         # calcul de S_Nl
         S_Nl = np.zeros((nlig, ncol))
@@ -259,7 +266,7 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
                     pass
         if cfg.debug:
             iio.write(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
-            
+
         # calcul de decision_l d'après (4.1)
         decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
         decisions += [decision_l]
@@ -308,6 +315,7 @@ def algorithme(cfg, im1, im2, ante1, ante2, ican):
     ican : int
         Index du canal.
     """
+
     nlig, ncol = im1.shape
     pfas, decisions = calculer_pfas(cfg, im1, im2, ante1, ante2, ican)
     lambda_n = np.sum(np.array(pfas))
@@ -333,53 +341,101 @@ def lit_parametres():
 
     d = "Compute the changes between two images."
     parser = argparse.ArgumentParser(description=d)
-    parser.add_argument(
+    subparsers = parser.add_subparsers(dest="monaction")
+
+    a_parser = subparsers.add_parser("apparier", help="Entre deux images.")
+    a_parser.add_argument(
         "--image1", type=str, required=True, help="First image."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--image2", type=str, required=True, help="Second image."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--ante1", type=str, required=True, help="Ante First image."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--ante2", type=str, required=True, help="Ante Second image."
     )
-    
-    parser.add_argument(
+    a_parser.add_argument(
         "--scale", type=int, required=False, help="Nombre d'échelles."
         , default=2
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--b", type=int, required=False, default=3, help="Voisinage de τ."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--metrique", type=str, required=False, help="Distance.",
         choices=["correlation", "l2", "ratio", "zncc", "lin"], default="l2"
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--epsilon", type=float, required=False, default=1.0,
         help="Nombre de fausses alarmes."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--sigma", type=float, required=False, default=0.8,
         help="Écart type du noyau de flou."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--repout", type=str, required=False, default="./",
         help="Répertoire de sortie."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--ndvi-threshold", type=float, required=False, default=0.1,
         help="NDVI seuil."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--ndwi-threshold", type=float, required=False, default=0.5,
         help="NDWI seuil."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--debug", type=bool, required=False, default=False,
         help="NDWI seuil."
+    )
+    #===========================================================================
+    b_parser = subparsers.add_parser(
+        "tripler", help="A partir d'une archive Zip."
+    )
+    b_parser.add_argument(
+        "--zip", type=str, required=True, help="Zip contenant les images."
+    )
+    b_parser.add_argument(
+        "--scale", type=int, required=False, help="Nombre d'échelles."
+        , default=2
+    )
+    b_parser.add_argument(
+        "--b", type=int, required=False, default=3, help="Voisinage de τ."
+    )
+    b_parser.add_argument(
+        "--metrique", type=str, required=False, help="Distance.",
+        choices=["correlation", "l2", "ratio", "zncc", "lin"], default="l2"
+    )
+    b_parser.add_argument(
+        "--epsilon", type=float, required=False, default=1.0,
+        help="Nombre de fausses alarmes."
+    )
+    b_parser.add_argument(
+        "--sigma", type=float, required=False, default=0.8,
+        help="Écart type du noyau de flou."
+    )
+    b_parser.add_argument(
+        "--repout", type=str, required=False, default="./",
+        help="Répertoire de sortie."
+    )
+    b_parser.add_argument(
+        "--ndvi-threshold", type=float, required=False, default=0.1,
+        help="NDVI seuil."
+    )
+    b_parser.add_argument(
+        "--ndwi-threshold", type=float, required=False, default=0.5,
+        help="NDWI seuil."
+    )
+    b_parser.add_argument(
+        "--debug", type=bool, required=False, default=False,
+        help="NDWI seuil."
+    )
+    b_parser.add_argument(
+        "--identiques", type=bool, required=False, default=False,
+        help="Images identiques."
     )
 
     cfg = parser.parse_args()
@@ -405,7 +461,7 @@ def normaliser_image(img, sat=None):
     img[img<0.0] = 0.0
     #print("shape",img.shape)
 
-    img = np.array(img, dtype=np.uint8)    
+    img = np.array(img, dtype=np.uint8)
     return img
 
 
@@ -452,24 +508,21 @@ def compute_index_maps(cfg, img):
 #        img_ndwi = np.concatenate((can, can, b_can), axis=2)
 
         img = img[:, :, 0:3]
-        
+
         return img, img_ndvi, ndvi, img_ndwi, ndwi
     else:
         return img, None, None, None, None
 
 
-def main():
+def comparer_une_paire(cfg):
     """
     ...
     """
-
-    cfg = lit_parametres()
     print(cfg.debug)
     im1 = iio.read(cfg.image1)
     im2 = iio.read(cfg.image2)
     ante1 = iio.read(cfg.ante1)
     ante2 = iio.read(cfg.ante2)
-    
     if not exists(cfg.repout):
         os.mkdir(cfg.repout)
 
@@ -477,13 +530,14 @@ def main():
     im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
     im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
     ante1, _, _, _, _ = compute_index_maps(cfg, ante1)
-    ante2, _, _, _, _ = compute_index_maps(cfg, ante2)    
-    
+    ante2, _, _, _, _ = compute_index_maps(cfg, ante2)
     iio.write(
-        join(cfg.repout, "ante1.png"), normaliser_image(np.copy(ante1), sat=0.001)
+        join(cfg.repout, "ante1.png"),
+        normaliser_image(np.copy(ante1), sat=0.001)
     )
     iio.write(
-        join(cfg.repout, "ante2.png"), normaliser_image(np.copy(ante2), sat=0.001)
+        join(cfg.repout, "ante2.png"),
+        normaliser_image(np.copy(ante2), sat=0.001)
     )
     iio.write(
         join(cfg.repout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
@@ -506,13 +560,13 @@ def main():
     ante2 = np.mean(ante2, axis=2)
     ante2 = ante2.reshape(nlig, ncol, 1)
 
-    im2[200, 200, 0] = 2 * im2[200, 200, 0]
-    
+#    im2[200, 200, 0] = 2 * im2[200, 200, 0]
+
     iio.write(join(cfg.repout, "ante1.tif"), ante1)
     iio.write(join(cfg.repout, "ante2.tif"), ante2)
     iio.write(join(cfg.repout, "im1.tif"), im1)
     iio.write(join(cfg.repout, "im2.tif"), im2)
-    
+
     nlig, ncol, ncan = im1.shape
     for n in np.arange(ncan):
         h_uv, pfal = algorithme(
@@ -523,6 +577,10 @@ def main():
         pfal = calorifier_image(pfal)
         iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
 
+    ecrire_mappes(cfg, img_ndwi1, img_nwdi2, ndvi2, h_uv)
+    return
+
+def ecrire_mappes(cfg, img_ndwi1, img_nwdi2, ndvi2, h_uv):
     #print(img_ndvi1)
     # NDVI filtering if any
 #    h_uv = np.ones((nlig, ncol, 1))
@@ -531,7 +589,7 @@ def main():
         iio.write(join(cfg.repout, "ndvi2.png"), img_ndvi2)
 #        iio.write(join(cfg.repout, "ndwi1.png"), img_ndwi1)
         iio.write(join(cfg.repout, "ndwi2.png"), img_ndwi2)
-        
+
 #        iio.write(join(cfg.repout, "ndvi1.tif"), ndvi1)
 #        iio.write(join(cfg.repout, "ndwi1.tif"), ndwi1)
         # L'idée est de supprimer tous les changements qui sont du type
@@ -544,19 +602,203 @@ def main():
         himg = np.copy(h_uv)
         himg[img_veget] = 0
         img_veget = np.array(255 * img_veget, dtype=np.uint8)
-        iio.write(join(cfg.repout, f"ndvi_filtre.png"), img_veget)
-        iio.write(join(cfg.repout, f"huvl_ndvi.png"), himg)
+        iio.write(join(cfg.repout, "ndvi_filtre.png"), img_veget)
+        iio.write(join(cfg.repout, "huvl_ndvi.png"), himg)
         # Roughly the NDWI index caracterizes water for values >= 0.5
         # custom-scripts.sentinel-hub.com/custom-scripts/sentinel-2/ndwi/
         img_water = ndwi2 >= cfg.ndwi_threshold
-        img_water = img_water.squeeze()        
+        img_water = img_water.squeeze()
         himg = np.copy(h_uv)
         himg[img_water] = 0
 
         img_water = np.array(255 * img_water, dtype=np.uint8)
-        iio.write(join(cfg.repout, f"ndwi_filtre.png"), img_water)        
-        iio.write(join(cfg.repout, f"huvl_ndwi.png"), himg)
-        
+        iio.write(join(cfg.repout, "ndwi_filtre.png"), img_water)
+        iio.write(join(cfg.repout, "huvl_ndwi.png"), himg)
+
+    return
+
+
+def calculer_triplet_dates(cfg):
+    """
+    ...
+    """
+
+    # liste ordonnées des fichiers contenus dans le zip
+    monzip = zipfile.ZipFile(cfg.zip)
+    repzip = cfg.repout + "_zip"
+    with zipfile.ZipFile(cfg.zip, 'r') as monzip:
+        monzip.extractall(repzip)
+
+    fichiers = sorted(os.listdir(repzip))
+    print(fichiers)
+
+    # récupération des dates concernés et conversion des dates au format
+    # numériques
+    triplets = []
+    mesdates = [eval(f.split('_')[0].replace('-', '')) for f in fichiers]
+
+    print(mesdates)
+    date1 = mesdates[-2]
+    date2 = mesdates[-1]
+    print(date1, date2, fichiers[-2], fichiers[-1])
+
+    triplets += [(join(repzip, fichiers[-2]), join(repzip, fichiers[-1]))]
+
+    for annee in [10000, 20000]:
+        # recherche des dates bornes : la date antérieure la plus proche du min
+        # et la date ultérieure la plus proche du max
+        ante1 = date1 - annee
+        ante2 = date2 - annee
+
+        # date antérieure la plus proche
+        borne1 = None
+        borne1i = None
+        for i, madate in enumerate(mesdates):
+            if madate < ante1:
+                borne1i = i
+            else:
+                break
+        # date ultérieure la plus proche
+        borne2 = None
+        borne2i = None
+        for i, madate in enumerate(mesdates):
+            if madate > ante2:
+                borne2i = i
+                break
+
+        # petit algorithme
+        optimal_dist, optimal_d1, optimal_d2 = float('inf'), 0, 0
+        optimal_i1, optimal_i2 = 0, 0
+        for i1 in range(borne1i, borne2i):
+            for i2 in range(i1+1, borne2i+1):
+                # calcul de la distance
+                dist = (
+                    abs((ante2 - ante1) - (mesdates[i2] - mesdates[i1]))
+                    + abs(ante2 - mesdates[i2]) + abs(ante1 - mesdates[i1])
+                )
+                if dist < optimal_dist:
+                    optimal_i1 = i1
+                    optimal_i2 = i2
+                    optimal_d1 = mesdates[i1]
+                    optimal_d2 = mesdates[i2]
+                    optimal_dist = dist
+
+        # récupération des résultats
+#        print(ante1, ante2, (ante2 - ante1))
+        print(
+            optimal_d1, optimal_d2, optimal_dist,
+            fichiers[optimal_i1], fichiers[optimal_i2]
+        )
+        triplets += [(
+            join(repzip, fichiers[optimal_i1]),
+            join(repzip, fichiers[optimal_i2])
+        )]
+
+# com    if cfg.debug:
+# com        iio.write(
+# com            join(cfg.repout, "im1.png"),
+# com            normaliser_image(np.copy(triplets[0][1]), sat=0.001)
+# com        )
+# com        iio.write(
+# com            join(cfg.repout, "im2.png"),
+# com            normaliser_image(np.copy(triplets[0][2]), sat=0.001)
+# com        )
+# com        iio.write(
+# com            join(cfg.repout, "antea1.png"),
+# com            normaliser_image(np.copy(triplets[1][1]), sat=0.001)
+# com        )
+# com        iio.write(
+# com            join(cfg.repout, "antea2.png"),
+# com            normaliser_image(np.copy(triplets[1][2]), sat=0.001)
+# com        )
+# com        iio.write(
+# com            join(cfg.repout, "anteb1.png"),
+# com            normaliser_image(np.copy(triplets[2][1]), sat=0.001)
+# com        )
+# com        iio.write(
+# com            join(cfg.repout, "anteb2.png"),
+# com            normaliser_image(np.copy(triplets[2][2]), sat=0.001)
+# com        )
+# com
+    print(triplets)
+    return triplets
+
+
+def comparer_par_triplet(cfg):
+    """
+    ...
+    """
+
+
+    (im1, im2), (antea1, antea2), (anteb1, anteb2) = calculer_triplet_dates(cfg)
+    # im1, im2, antea1, antea2, anteb1, anteb2
+    # im1, im2, im1, im2
+    # im1, im2, ante11, ante12
+
+    mappes_binaires = []
+    print("paire 1...")
+    cfg.identiques = True
+    mappes_binaires += [calculer_mappe_binaire(cfg, im1, im2, im1, im1)]
+    print("paire 2...")
+    cfg.identiques = False
+    mappes_binaires += [calculer_mappe_binaire(cfg, im1, im2, antea1, antea2)]
+    print("paire 3...")
+    cfg.identiques = False
+    mappes_binaires += [calculer_mappe_binaire(cfg, im1, im2, anteb1, anteb2)]
+    mappes = np.array(mappes_binaires)
+    mappe = np.sum(mappes, axis=0)
+    iio.write(join(cfg.repout, "mappe.png"), mappe)
+    return 0
+
+
+def calculer_mappe_binaire(cfg, image1, image2, ante1, ante2):
+    """
+    ...
+    """
+
+    im1 = iio.read(image1)
+    im2 = iio.read(image2)
+    ante1 = iio.read(ante1)
+    ante2 = iio.read(ante2)
+    if not exists(cfg.repout):
+        os.mkdir(cfg.repout)
+
+    # suppression du canal B08 si besoin
+    im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
+    im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
+    ante1, _, _, _, _ = compute_index_maps(cfg, ante1)
+    ante2, _, _, _, _ = compute_index_maps(cfg, ante2)
+
+    im1 = np.mean(im1, axis=2)
+    im2 = np.mean(im2, axis=2)
+    ante1 = np.mean(ante1, axis=2)
+    ante2 = np.mean(ante2, axis=2)
+    assert im1.shape == im2.shape and im1.shape == ante1.shape
+
+    h_uv, pfal = algorithme(cfg, im1, im2, ante1, ante2, 0)
+
+    if cfg.debug:
+        n = 0
+        g_uv = normaliser_image(h_uv)
+        iio.write(join(cfg.repout, "huvl.png"), g_uv)
+        g_pfal = calorifier_image(pfal)
+        iio.write(join(cfg.repout, "pfal.png"), g_pfal)
+
+    return h_uv
+
+
+def main():
+    """
+    ...
+    """
+
+    cfg = lit_parametres()
+
+    if cfg.monaction == "apparier":
+        comparer_une_paire(cfg)
+    elif cfg.monaction == "tripler":
+        comparer_par_triplet(cfg)
+
     return 0
 
 
@@ -574,4 +816,4 @@ if __name__ == "__main__":
 #     --ante1 2017-07-12_S2A_orbit_008_tile_31TDF_L1C_band_RGBI.tif \
 #     --ante2 2018-01-18_S2A_orbit_008_tile_31TDF_L1C_band_RGBI.tif \
 #     --metrique lin --scale 6 --b 2 --repout multiscale;
-# 
+#
