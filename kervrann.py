@@ -608,15 +608,17 @@ def calculer_triplet_dates(cfg):
     """
 
     # liste ordonnées des fichiers contenus dans le zip
-    repzip = cfg.repout; #join(cfg.repout, "zip")
+    repzip = join(cfg.repout, "zip")
     if not exists(repzip):
         os.mkdir(repzip)
     print("répertoire existe :", exists(repzip))
 
     with zipfile.ZipFile(cfg.zip, 'r') as monzip:
         fichiers = sorted([basename(f) for f in monzip.namelist()])
+        pfxrep = [dirname(f) for f in monzip.namelist()][0]
         monzip.extractall(path=repzip)
 
+    printf("pfxrep:", pfxrep)
     print("contenu du répertoire:", sorted(os.listdir(repzip)))
 
 #    exit()
@@ -632,7 +634,7 @@ def calculer_triplet_dates(cfg):
     date2 = mesdates[-1]
     print(date1, date2, fichiers[-2], fichiers[-1])
 
-    triplets += [(join(repzip, fichiers[-2]), join(repzip, fichiers[-1]))]
+    triplets += [(join(repzip, pfxrep, fichiers[-2]), join(repzip, pfxrep, fichiers[-1]))]
 
     for annee in [10000, 20000]:
         # recherche des dates bornes : la date antérieure la plus proche du min
@@ -678,8 +680,8 @@ def calculer_triplet_dates(cfg):
             fichiers[optimal_i1], fichiers[optimal_i2]
         )
         triplets += [(
-            join(repzip, fichiers[optimal_i1]),
-            join(repzip, fichiers[optimal_i2])
+            join(repzip, pfxrep, fichiers[optimal_i1]),
+            join(repzip, pfxrep, fichiers[optimal_i2])
         )]
 
 # com    if cfg.debug:
