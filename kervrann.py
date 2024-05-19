@@ -392,7 +392,7 @@ def lit_parametres():
     )
     b_parser.add_argument(
         "--metrique", type=str, required=False, help="Distance.",
-        choices=["correlation", "l2", "ratio", "zncc", "lin"], default="l2"
+        choices=["correlation", "l2", "ratio", "zncc", "lin"], default="lin"
     )
     b_parser.add_argument(
         "--epsilon", type=float, required=False, default=1.0,
@@ -760,7 +760,7 @@ def comparer_par_triplet(cfg):
     for ficimg, nom in zip(ficimgs, noms):
         print("ficimgs:", ficimgs)
         print("ficimg:",ficimg, nom)
-        img = iio.read(ficimg)
+        img = iio.read(ficimg)[:,:,0:3]
         iio.write(join(cfg.repout, nom), normaliser_image(img, sat=0.001))
     return 0
 
