@@ -614,7 +614,7 @@ def calculer_triplet_dates(cfg):
 
     fichiers = sorted(os.listdir(repzip))
     print(fichiers)
-
+    exit()
     # récupération des dates concernés et conversion des dates au format
     # numériques
     triplets = []
