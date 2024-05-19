@@ -768,6 +768,7 @@ def calculer_mappe_binaire(cfg, image1, image2, ante1, ante2):
     ...
     """
     print("quadruplet:", image1, image2, ante1, ante2)
+    print("exists(image1)", exists(image1))
     im1 = iio.read(image1)
     im2 = iio.read(image2)
     ante1 = iio.read(ante1)
