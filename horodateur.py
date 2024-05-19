@@ -43,7 +43,7 @@ def main():
     # liste ordonnées des fichiers contenus dans le zip
     zip = zipfile.ZipFile(cfg.zip)
     fichiers = sorted(zip.namelist())
-
+    print("fichiers:", fichiers)
     # récupération des dates concernés et conversion des dates au format
     # numériques
     mesdates = [
@@ -51,10 +51,13 @@ def main():
         for f in fichiers
     ]
     
-    print(mesdates)
+#    print(mesdates)
     date1 = mesdates[-2] if cfg.d1 is None else eval(cfg.d1.replace('-', ''))
     date2 = mesdates[-1] if cfg.d2 is None else eval(cfg.d2.replace('-', ''))    
-    print(date1, date2, fichiers[-2], fichiers[-1])
+    #print(date1, date2, fichiers[-2], fichiers[-1])
+    print(join(cfg.zip.replace(".zip", ""), fichiers[-2]))
+    print(join(cfg.zip.replace(".zip", ""), fichiers[-1]))
+    
     for an in [10000, 20000]:
         # recherche des dates bornes : la date antérieure la plus proche du min
         # et la date ultérieure la plus proche du max
@@ -98,10 +101,14 @@ def main():
 
         # récupération des résultats
 #        print(ante1, ante2, (ante2 - ante1))
-        print(
-            optimal_d1, optimal_d2, optimal_dist,
-            fichiers[optimal_i1], fichiers[optimal_i2]
-        )
+#        print(
+#            optimal_d1, optimal_d2, optimal_dist,
+#            fichiers[optimal_i1], fichiers[optimal_i2]
+#        )
+        print(join(cfg.zip.replace(".zip", ""), fichiers[optimal_i1]))
+        print(join(cfg.zip.replace(".zip", ""), fichiers[optimal_i2]))
+        
+
     return
 
 
