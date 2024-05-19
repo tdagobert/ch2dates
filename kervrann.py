@@ -5,7 +5,7 @@
 …
 """
 import os
-from os.path import exists, join, basename
+from os.path import exists, join, basename, dirname
 import timeit
 import argparse
 import zipfile
