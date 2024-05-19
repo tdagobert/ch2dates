@@ -645,7 +645,7 @@ def calculer_triplet_dates(cfg):
         # date antérieure la plus proche
         borne1i = None
         for i, madate in enumerate(mesdates):
-            if madate < ante1:
+            if madate <= ante1:
                 borne1i = i
             else:
                 break
