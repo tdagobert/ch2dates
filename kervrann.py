@@ -5,7 +5,7 @@
 …
 """
 import os
-from os.path import exists, join
+from os.path import exists, join, basename
 import timeit
 import argparse
 import zipfile
@@ -610,7 +610,7 @@ def calculer_triplet_dates(cfg):
     # liste ordonnées des fichiers contenus dans le zip
     repzip = cfg.repout + "_zip"
     with zipfile.ZipFile(cfg.zip, 'r') as monzip:
-        fichiers = sorted(monzip.namelist())
+        fichiers = sorted([basename(f) for f in monzip.namelist()])
         monzip.extractall(repzip)
 
 #    fichiers = sorted(os.listdir(repzip))
