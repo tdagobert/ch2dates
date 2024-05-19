@@ -608,7 +608,7 @@ def calculer_triplet_dates(cfg):
     """
 
     # liste ordonnées des fichiers contenus dans le zip
-    repzip = join(cfg.repout, "zip")
+    repzip = cfg.repout; #join(cfg.repout, "zip")
     if not exists(repzip):
         os.mkdir(repzip)
     print("répertoire existe :", exists(repzip))
