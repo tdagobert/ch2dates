@@ -618,7 +618,7 @@ def calculer_triplet_dates(cfg):
         pfxrep = [dirname(f) for f in monzip.namelist()][0]
         monzip.extractall(path=repzip)
 
-    printf("pfxrep:", pfxrep)
+    print("pfxrep:", pfxrep)
     print("contenu du répertoire:", sorted(os.listdir(repzip)))
 
 #    exit()
