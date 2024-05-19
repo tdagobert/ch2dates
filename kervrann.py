@@ -9,6 +9,7 @@ from os.path import exists, join
 import timeit
 import argparse
 import zipfile
+from ast import literal_eval
 
 import numpy as np
 import iio
@@ -63,82 +64,80 @@ def gerer_bords(img):
 
 
 @njit
-def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
+def calculer_phi(
+        imu, imv, imu_rho, imv_rho, l, b, metrique, est_uu=False
+):
     """
     D'après la formule (2.2).
     Paramètres
     ----------
-    u : np.array ndim=(nlig, ncol)
+    imu : np.array ndim=(nlig, ncol)
         Image de référence.
-    v : np.array ndim=(nlig, ncol)
+    imv : np.array ndim=(nlig, ncol)
         Image de comparaison.
     l : int
         Demi-côté de la vignette carrée.
     cfg : Namespace
     """
 
-    nlig, ncol = u.shape
+    nlig, ncol = imu.shape
     demi_b = b // 2
 
     # résultat
     phi_uvl = np.nan * np.ones((nlig, ncol, b**2))
 
-    # images filtrées
-#    u_rho = gaussian_filter(u, sigma)
-#    v_rho = gaussian_filter(v, sigma)
-
     # calcul pixellien
-    for xi in np.arange(nlig):
-#        print(xi)
-        for xj in np.arange(ncol):
+    for x_i in np.arange(nlig):
+#        print(x_i)
+        for x_j in np.arange(ncol):
 
             # test aux limites
-            if xi-l < 0 or nlig <= xi+l or xj-l < 0 or ncol <= xj+l:
+            if x_i-l < 0 or nlig <= x_i+l or x_j-l < 0 or ncol <= x_j+l:
                 continue
 
             # voisinage de x
             if metrique == "l2":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
+                uu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1] - imu_rho[x_i, x_j]
             elif metrique == "ratio":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
+                uu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
             elif metrique == "correlation":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
+                uu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
             elif metrique == "lin":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
+                uu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
             elif metrique == "zncc":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
+                uu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
                 muu = np.mean(uu)
             k = 0
             for m in np.arange(-demi_b, demi_b + 1):
                 for n in np.arange(-demi_b, demi_b + 1):
-                    yi = xi + m
-                    yj = xj + n
+                    y_i = x_i + m
+                    y_j = x_j + n
 
                     # test aux limites
-                    if yi-l < 0 or nlig <= yi+l or yj-l < 0 or ncol <= yj+l:
+                    if y_i-l < 0 or nlig <= y_i+l or y_j-l < 0 or ncol <= y_j+l:
                         k += 1
                         continue
 
                     # voisinage de y
-                    vv = v[yi-l:yi+l+1, yj-l:yj+l+1]
+                    vv = imv[y_i-l:y_i+l+1, y_j-l:y_j+l+1]
 
                     # calcul de la distance
-                    if not est_uu or (est_uu and not (yi == xi and yj == xj)):
+                    if not est_uu or (est_uu and not (y_i == x_i and y_j == x_j)):
                         if metrique == "l2":
-                            vv = vv - v_rho[yi, yj]
-                            phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
+                            vv = vv - imv_rho[y_i, y_j]
+                            phi_uvl[x_i, x_j, k] = np.sum((uu - vv)**2)
                         elif metrique == "ratio":
-                            vv = vv * (u_rho[xi, xj] / v_rho[yi, yj])
-                            phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
+                            vv = vv * (imu_rho[x_i, x_j] / imv_rho[y_i, y_j])
+                            phi_uvl[x_i, x_j, k] = np.sum((uu - vv)**2)
                         elif metrique == "lin":
                             suu = np.sum(uu*uu)
                             svv = np.sum(vv*vv)
-                            phi_uvl[xi, xj, k] = (
+                            phi_uvl[x_i, x_j, k] = (
                                 max(suu, svv)
                                 * (1 - np.sum(uu * vv)**2 / (suu * svv))
                             )
                         elif metrique == "correlation":
-                            phi_uvl[xi, xj, k] = (
+                            phi_uvl[x_i, x_j, k] = (
                                 1
                                 - np.sum(uu * vv) /
                                 (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv))
@@ -146,7 +145,7 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
                             )
                         elif metrique == "zncc":
                             mvv = np.mean(vv)
-                            phi_uvl[xi, xj, k] = (
+                            phi_uvl[x_i, x_j, k] = (
                                 1
                                 - np.sum((uu - muu) * (vv - mvv))
                                 /(vv.size * np.std(uu) * np.std(vv))
@@ -156,20 +155,6 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
 
     phi_uvl = gerer_bords(phi_uvl)
     return phi_uvl
-
-
-# alt@njit
-# altdef compute_tau_l_mean(phi_uul):
-# alt    nlig, ncol, _ = phi_uul.shape
-# alt    tau_l_mean = nb.typed.List.empty_list(nb.f8)
-# alt    for i in np.arange(nlig):
-# alt        for j in np.arange(ncol):
-# alt            # recherche du minimum sur le voisinage b(x)
-# alt            tau_l_mean.append(np.nanmin(phi_uul[i, j, :]))
-# alt
-# alt    tau_l_mean = np.nanmean(np.array(tau_l_mean))
-# alt
-# alt    return tau_l_mean
 
 
 def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
@@ -204,7 +189,7 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
         print(f"Échelle {l}")
         # calcul de φ(u, u, l)
         phi_uul = calculer_phi(
-            ante1, ante2, ante1_rho, ante2_rho, l, cfg.b, cfg.sigma,
+            ante1, ante2, ante1_rho, ante2_rho, l, cfg.b,
             cfg.metrique, est_uu=cfg.identiques
         )
         #print(phi_uul.shape)
@@ -218,7 +203,7 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
 
         # calcul de φ(u, v, l)
         phi_uvl = calculer_phi(
-            im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metrique
+            im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.metrique
         )
         if cfg.debug:
             for n in np.arange(ncan):
@@ -466,6 +451,9 @@ def normaliser_image(img, sat=None):
 
 
 def calorifier_image(img, apply_log=True):
+    """
+    ...
+    """
     if apply_log:
         img = np.log(img)
         mini = np.min(img)
@@ -479,39 +467,27 @@ def calorifier_image(img, apply_log=True):
     return img
 
 
-def compute_index_maps(cfg, img):
+def compute_index_maps(img):
     """
     If the image contains 4 channels, we assume it is a Sentinel-2 image with
     the B04, B03, B02, B08 channels storage in this order. We retrieve the
     B08 to compute the NDVI index…
 
     """
-    nlig, ncol, ncan = img.shape
+    _, _, ncan = img.shape
 
     if ncan == 4:
         # we compute the NDVI index, where values stand in [-1, +1]
-        ndvi = (img[:, :, 3] - img[:, :, 0]) / (img[:, :, 3] + img[:, :, 0])
-        ndvi = np.expand_dims(ndvi, axis=-1)
-        # we normalize
-        img_ndvi = normaliser_image(ndvi)
-#        g_can = 255 * np.ones((nlig, ncol, 1))
-#        can = 255 * (1 - (ndvi + 1) / 2)
-#        img_ndvi = np.concatenate((can, g_can, can), axis=2)
+        img_ndvi = (img[:, :, 3] - img[:, :, 0]) / (img[:, :, 3] + img[:, :, 0])
 
         # we compute the NDWI index, where values stand in [-1, +1]
-        ndwi = (img[:, :, 1] - img[:, :, 3]) / (img[:, :, 1] + img[:, :, 3])
-        ndwi = np.expand_dims(ndwi, axis=-1)
-        # we normalize
-        img_ndwi = normaliser_image(ndwi)
-#        b_can = 255 * np.ones((nlig, ncol, 1))
-#        can = 255 * (1 - (ndwi + 1) / 2)
-#        img_ndwi = np.concatenate((can, can, b_can), axis=2)
+        img_ndwi = (img[:, :, 1] - img[:, :, 3]) / (img[:, :, 1] + img[:, :, 3])
 
         img = img[:, :, 0:3]
 
-        return img, img_ndvi, ndvi, img_ndwi, ndwi
-    else:
-        return img, None, None, None, None
+        return img, img_ndvi, img_ndwi
+
+    return img, None, None
 
 
 def comparer_une_paire(cfg):
@@ -527,10 +503,10 @@ def comparer_une_paire(cfg):
         os.mkdir(cfg.repout)
 
     # suppression du canal B02 si besoin
-    im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
-    im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
-    ante1, _, _, _, _ = compute_index_maps(cfg, ante1)
-    ante2, _, _, _, _ = compute_index_maps(cfg, ante2)
+    im1, _, _ = compute_index_maps(im1)
+    im2, img_ndvi2, img_ndwi2 = compute_index_maps(im2)
+    ante1, _, _ = compute_index_maps(ante1)
+    ante2, _, _ = compute_index_maps(ante2)
     iio.write(
         join(cfg.repout, "ante1.png"),
         normaliser_image(np.copy(ante1), sat=0.001)
@@ -577,45 +553,53 @@ def comparer_une_paire(cfg):
         pfal = calorifier_image(pfal)
         iio.write(join(cfg.repout, f"pfal_c{n}.png"), pfal)
 
-    ecrire_mappes(cfg, img_ndwi1, img_nwdi2, ndvi2, h_uv)
-    return
+    ecrire_mappes(cfg, img_ndvi2, img_ndwi2, h_uv)
+    return 0
 
-def ecrire_mappes(cfg, img_ndwi1, img_nwdi2, ndvi2, h_uv):
-    #print(img_ndvi1)
+
+def ecrire_mappes(cfg, img_ndvi, img_ndwi, h_uv):
+    """
+    ...
+    """
+
     # NDVI filtering if any
 #    h_uv = np.ones((nlig, ncol, 1))
-    if img_ndvi1 is not None:
-#        iio.write(join(cfg.repout, "ndvi1.png"), img_ndvi1)
-        iio.write(join(cfg.repout, "ndvi2.png"), img_ndvi2)
-#        iio.write(join(cfg.repout, "ndwi1.png"), img_ndwi1)
-        iio.write(join(cfg.repout, "ndwi2.png"), img_ndwi2)
+    if img_ndvi is not None:
+        iio.write(
+            join(cfg.repout, "ndvi.png"),
+            normaliser_image(np.copy(img_ndvi))
+        )
+        iio.write(
+            join(cfg.repout, "ndwi.png"),
+            normaliser_image(np.copy(img_ndwi))
+        )
 
-#        iio.write(join(cfg.repout, "ndvi1.tif"), ndvi1)
-#        iio.write(join(cfg.repout, "ndwi1.tif"), ndwi1)
         # L'idée est de supprimer tous les changements qui sont du type
         # végétation--> végétation ou du type non-végétation--> végétation.
         # i.e. dès que im2 est végétation
+
         # Roughly the NDVI index caracterizes dense vegetation for values > 0.1
-        img_veget = ndvi2 > cfg.ndvi_threshold
+        img_veget = img_ndvi > cfg.ndvi_threshold
         img_veget = img_veget.squeeze()
 #        iio.write(join(cfg.repout, f"veget.tif"), img_veget)
         himg = np.copy(h_uv)
         himg[img_veget] = 0
         img_veget = np.array(255 * img_veget, dtype=np.uint8)
         iio.write(join(cfg.repout, "ndvi_filtre.png"), img_veget)
-        iio.write(join(cfg.repout, "huvl_ndvi.png"), himg)
+        iio.write(join(cfg.repout, "huvl_par_ndvi_filtre.png"), himg)
+
         # Roughly the NDWI index caracterizes water for values >= 0.5
         # custom-scripts.sentinel-hub.com/custom-scripts/sentinel-2/ndwi/
-        img_water = ndwi2 >= cfg.ndwi_threshold
+        img_water = img_ndwi >= cfg.ndwi_threshold
         img_water = img_water.squeeze()
         himg = np.copy(h_uv)
         himg[img_water] = 0
 
         img_water = np.array(255 * img_water, dtype=np.uint8)
         iio.write(join(cfg.repout, "ndwi_filtre.png"), img_water)
-        iio.write(join(cfg.repout, "huvl_ndwi.png"), himg)
+        iio.write(join(cfg.repout, "huvl_par_ndwi_filtre.png"), himg)
 
-    return
+    return 0
 
 
 def calculer_triplet_dates(cfg):
@@ -624,7 +608,6 @@ def calculer_triplet_dates(cfg):
     """
 
     # liste ordonnées des fichiers contenus dans le zip
-    monzip = zipfile.ZipFile(cfg.zip)
     repzip = cfg.repout + "_zip"
     with zipfile.ZipFile(cfg.zip, 'r') as monzip:
         monzip.extractall(repzip)
@@ -635,8 +618,10 @@ def calculer_triplet_dates(cfg):
     # récupération des dates concernés et conversion des dates au format
     # numériques
     triplets = []
-    mesdates = [eval(f.split('_')[0].replace('-', '')) for f in fichiers]
-
+    mesdates = [
+        literal_eval(f.split('_')[0].replace('-', '')) for f in fichiers
+    ]
+#    06 04 18 51 35
     print(mesdates)
     date1 = mesdates[-2]
     date2 = mesdates[-1]
@@ -651,7 +636,6 @@ def calculer_triplet_dates(cfg):
         ante2 = date2 - annee
 
         # date antérieure la plus proche
-        borne1 = None
         borne1i = None
         for i, madate in enumerate(mesdates):
             if madate < ante1:
@@ -659,7 +643,6 @@ def calculer_triplet_dates(cfg):
             else:
                 break
         # date ultérieure la plus proche
-        borne2 = None
         borne2i = None
         for i, madate in enumerate(mesdates):
             if madate > ante2:
@@ -669,18 +652,18 @@ def calculer_triplet_dates(cfg):
         # petit algorithme
         optimal_dist, optimal_d1, optimal_d2 = float('inf'), 0, 0
         optimal_i1, optimal_i2 = 0, 0
-        for i1 in range(borne1i, borne2i):
-            for i2 in range(i1+1, borne2i+1):
+        for i_1 in range(borne1i, borne2i):
+            for i_2 in range(i_1+1, borne2i+1):
                 # calcul de la distance
                 dist = (
-                    abs((ante2 - ante1) - (mesdates[i2] - mesdates[i1]))
-                    + abs(ante2 - mesdates[i2]) + abs(ante1 - mesdates[i1])
+                    abs((ante2 - ante1) - (mesdates[i_2] - mesdates[i_1]))
+                    + abs(ante2 - mesdates[i_2]) + abs(ante1 - mesdates[i_1])
                 )
                 if dist < optimal_dist:
-                    optimal_i1 = i1
-                    optimal_i2 = i2
-                    optimal_d1 = mesdates[i1]
-                    optimal_d2 = mesdates[i2]
+                    optimal_i1 = i_1
+                    optimal_i2 = i_2
+                    optimal_d1 = mesdates[i_1]
+                    optimal_d2 = mesdates[i_2]
                     optimal_dist = dist
 
         # récupération des résultats
@@ -738,16 +721,40 @@ def comparer_par_triplet(cfg):
     mappes_binaires = []
     print("paire 1...")
     cfg.identiques = True
-    mappes_binaires += [calculer_mappe_binaire(cfg, im1, im2, im1, im1)]
+    [h_uv, img_ndvi, img_ndwi] = calculer_mappe_binaire(cfg, im1, im2, im1, im1)
+    mappes_binaires += [h_uv]
+
+    huvl_original = np.array(255 * h_uv, dtype=np.uint8)
+    iio.write(join(cfg.repout, "huvl_original.png"), huvl_original)
+
     print("paire 2...")
     cfg.identiques = False
-    mappes_binaires += [calculer_mappe_binaire(cfg, im1, im2, antea1, antea2)]
+    h_uv = calculer_mappe_binaire(cfg, im1, im2, antea1, antea2)
+    mappes_binaires += [h_uv]
     print("paire 3...")
     cfg.identiques = False
-    mappes_binaires += [calculer_mappe_binaire(cfg, im1, im2, anteb1, anteb2)]
+    h_uv = calculer_mappe_binaire(cfg, im1, im2, anteb1, anteb2)
+    mappes_binaires += [h_uv]
     mappes = np.array(mappes_binaires)
-    mappe = np.sum(mappes, axis=0)
-    iio.write(join(cfg.repout, "mappe.png"), mappe)
+    # vote majoritaire
+    mappe = 1 * np.sum(mappes, axis=0) >= 2
+
+    huvl_triplet = np.array(255 * mappe, dtype=np.uint8)
+    iio.write(join(cfg.repout, "huvl_triplet.png"), huvl_triplet)
+
+    ecrire_mappes(cfg, img_ndvi, img_ndwi, mappe)
+#    iio.write(join(cfg.repout, "mappe.png"), mappe)
+    ficimgs = [im1, im2, antea1, antea2, anteb1, anteb2]
+    noms = [
+        "im1.png", "im2.png", "antea1.png",
+        "antea2.png", "anteb1.png", "anteb2.png"
+    ]
+
+    for ficimg, nom in zip(ficimgs, noms):
+        print("ficimgs:", ficimgs)
+        print("ficimg:",ficimg, nom)
+        img = iio.read(ficimg)
+        iio.write(join(cfg.repout, nom), normaliser_image(img, sat=0.001))
     return 0
 
 
@@ -764,10 +771,10 @@ def calculer_mappe_binaire(cfg, image1, image2, ante1, ante2):
         os.mkdir(cfg.repout)
 
     # suppression du canal B08 si besoin
-    im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
-    im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
-    ante1, _, _, _, _ = compute_index_maps(cfg, ante1)
-    ante2, _, _, _, _ = compute_index_maps(cfg, ante2)
+    im1, _, _ = compute_index_maps(im1)
+    im2, img_ndvi2, img_ndwi2 = compute_index_maps(im2)
+    ante1, _, _ = compute_index_maps(ante1)
+    ante2, _, _ = compute_index_maps(ante2)
 
     im1 = np.mean(im1, axis=2)
     im2 = np.mean(im2, axis=2)
@@ -778,11 +785,13 @@ def calculer_mappe_binaire(cfg, image1, image2, ante1, ante2):
     h_uv, pfal = algorithme(cfg, im1, im2, ante1, ante2, 0)
 
     if cfg.debug:
-        n = 0
         g_uv = normaliser_image(h_uv)
         iio.write(join(cfg.repout, "huvl.png"), g_uv)
         g_pfal = calorifier_image(pfal)
         iio.write(join(cfg.repout, "pfal.png"), g_pfal)
+
+    if cfg.identiques:
+        return [h_uv, img_ndvi2, img_ndwi2]
 
     return h_uv
 
@@ -808,8 +817,12 @@ if __name__ == "__main__":
     #main()
 
     #Lignes de commandes
-    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation --repout mcor_s2_b3_eps1_sig0.8
-    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique ratio --repout mrat_s2_b3_eps1_sig0.8
+    # python3 kervrann.py --image1 img1.png --image2 img2.png \
+    # --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation \
+    # --repout mcor_s2_b3_eps1_sig0.8
+    # python3 kervrann.py --image1 img1.png --image2 img2.png \
+    # --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique ratio
+    # --repout mrat_s2_b3_eps1_sig0.8
 # python kervrann.py \
 #     --image1 2018-07-12_S2B_orbit_008_tile_31TDF_L1C_band_RGBI.tif \
 #     --image2 2019-01-03_S2A_orbit_008_tile_31TDF_L1C_band_RGBI.tif \
