@@ -617,8 +617,7 @@ def calculer_triplet_dates(cfg):
         fichiers = sorted([basename(f) for f in monzip.namelist()])
         monzip.extractall(path=repzip)
 
-#    fichiers = sorted(os.listdir(repzip))
-    print(fichiers)
+    print("contenu du répertoire:", sorted(os.listdir(repzip)))
 
 #    exit()
     # récupération des dates concernés et conversion des dates au format
