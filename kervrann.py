@@ -610,11 +610,13 @@ def calculer_triplet_dates(cfg):
     # liste ordonnées des fichiers contenus dans le zip
     repzip = cfg.repout + "_zip"
     with zipfile.ZipFile(cfg.zip, 'r') as monzip:
+        fichiers = sorted(monzip.namelist())
         monzip.extractall(repzip)
 
-    fichiers = sorted(os.listdir(repzip))
+#    fichiers = sorted(os.listdir(repzip))
     print(fichiers)
-    exit()
+
+#    exit()
     # récupération des dates concernés et conversion des dates au format
     # numériques
     triplets = []
