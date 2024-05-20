@@ -626,8 +626,13 @@ def calculer_triplet_dates(cfg):
     # numériques
     triplets = []
     mesdates = [
-        literal_eval(f.split('_')[0].replace('-', '')) for f in fichiers
+        literal_eval(f.split('_')[0].replace('-', '')) for f in sorted(fichiers)
     ]
+    if len(mesdates) == 6:
+        triplets += [(join(repzip, pfxrep, fichiers[4]), join(repzip, pfxrep, fichiers[5]))]
+        triplets += [(join(repzip, pfxrep, fichiers[2]), join(repzip, pfxrep, fichiers[3]))]
+        triplets += [(join(repzip, pfxrep, fichiers[0]), join(repzip, pfxrep, fichiers[1]))]
+        return triplets
 #    06 04 18 51 35
     print(mesdates)
     date1 = mesdates[-2]
@@ -645,7 +650,7 @@ def calculer_triplet_dates(cfg):
         # date antérieure la plus proche
         borne1i = None
         for i, madate in enumerate(mesdates):
-            if madate <= ante1:
+            if madate < ante1:
                 borne1i = i
             else:
                 break
