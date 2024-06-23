@@ -589,6 +589,7 @@ def ecrire_mappes(cfg, img_ndvi, img_ndwi, h_uv):
         himg[img_veget] = 0
         img_veget = np.array(255 * img_veget, dtype=np.uint8)
         iio.write(join(cfg.repout, "ndvi_filtre.png"), img_veget)
+        himg = np.array(255 * himg, dtype=np.uint8)        
         iio.write(join(cfg.repout, "huvl_par_ndvi_filtre.png"), himg)
 
         # Roughly the NDWI index caracterizes water for values >= 0.5
@@ -600,6 +601,7 @@ def ecrire_mappes(cfg, img_ndvi, img_ndwi, h_uv):
 
         img_water = np.array(255 * img_water, dtype=np.uint8)
         iio.write(join(cfg.repout, "ndwi_filtre.png"), img_water)
+        himg = np.array(255 * himg, dtype=np.uint8)
         iio.write(join(cfg.repout, "huvl_par_ndwi_filtre.png"), himg)
 
     return 0
@@ -611,7 +613,7 @@ def calculer_triplet_dates(cfg):
     """
 
     # liste ordonnées des fichiers contenus dans le zip
-    repzip = join(cfg.repout, "zip")
+    repzip = cfg.repout + "_zip"
     if not exists(repzip):
         os.mkdir(repzip)
     print("répertoire existe :", exists(repzip))
