@@ -604,6 +604,20 @@ def ecrire_mappes(cfg, img_ndvi, img_ndwi, h_uv):
         himg = np.array(255 * himg, dtype=np.uint8)
         iio.write(join(cfg.repout, "huvl_par_ndwi_filtre.png"), himg)
 
+        # Mix with the two masks
+        img_mask = np.logical_or(
+            img_ndvi > cfg.ndvi_threshold, img_ndwi >= cfg.ndwi_threshold
+        )
+        img_mask = img_mask.squeeze()
+        himg = np.copy(h_uv)
+        himg[img_mask] = 0
+
+#        img_water = np.array(255 * img_mask, dtype=np.uint8)
+#        iio.write(join(cfg.repout, "ndwi_filtre.png"), img_water)
+
+        himg = np.array(255 * himg, dtype=np.uint8)
+        iio.write(join(cfg.repout, "huvl_tout_filtre.png"), himg)
+        
     return 0
 
 
