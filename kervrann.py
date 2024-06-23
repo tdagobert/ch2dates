@@ -10,6 +10,8 @@ import timeit
 import argparse
 import zipfile
 from ast import literal_eval
+import multiprocessing
+from joblib import Parallel, delayed
 
 import numpy as np
 import iio
@@ -157,7 +159,7 @@ def calculer_phi(
     return phi_uvl
 
 
-def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
+def calculer_pfas(cfg, im1, im2, ante1, ante2, ican, ref_ident):
     """
     Paramètres
     ----------
@@ -190,7 +192,7 @@ def calculer_pfas(cfg, im1, im2, ante1, ante2, ican):
         # calcul de φ(u, u, l)
         phi_uul = calculer_phi(
             ante1, ante2, ante1_rho, ante2_rho, l, cfg.b,
-            cfg.metrique, est_uu=cfg.identiques
+            cfg.metrique, est_uu=ref_ident
         )
         #print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
@@ -290,7 +292,7 @@ def calculer_alpha(epsilon, nlig, ncol, pfal):
     return alpha
 
 
-def algorithme(cfg, im1, im2, ante1, ante2, ican):
+def algorithme(cfg, im1, im2, ante1, ante2, ican, ref_ident):
     """
     cfg: Namespace
     im1: np.array ndim=(nlig, ncol)
@@ -302,7 +304,7 @@ def algorithme(cfg, im1, im2, ante1, ante2, ican):
     """
 
     nlig, ncol = im1.shape
-    pfas, decisions = calculer_pfas(cfg, im1, im2, ante1, ante2, ican)
+    pfas, decisions = calculer_pfas(cfg, im1, im2, ante1, ante2, ican, ref_ident)
     lambda_n = np.sum(np.array(pfas))
     print(f"lambda_n {lambda_n}")
     # calcul de kd
@@ -546,7 +548,8 @@ def comparer_une_paire(cfg):
     nlig, ncol, ncan = im1.shape
     for n in np.arange(ncan):
         h_uv, pfal = algorithme(
-            cfg, im1[:, :, n], im2[:, :, n], ante1[:, :, n], ante2[:, :, n], n
+            cfg, im1[:, :, n], im2[:, :, n], ante1[:, :, n], ante2[:, :, n], n,
+            cfg.identiques
         )
         h_uv = normaliser_image(h_uv)
         iio.write(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
@@ -730,24 +733,50 @@ def comparer_par_triplet(cfg):
     # im1, im2, im1, im2
     # im1, im2, ante11, ante12
 
+    with multiprocessing.Pool(processes=3) as pool:
+        results = Parallel(n_jobs=3)(
+            delayed(calculer_mappe_binaire)(
+                cfg, ima, imb, refa, refb, ref_ident
+            )
+            for ima, imb, refa, refb, ref_ident in zip(
+                [im1, im1, im1], [im2, im2, im2], [im1, antea1, anteb1],
+                [im1, antea2, anteb2], [True, False, False]
+            )
+        )
+        [res1, res2, res3] = results
+        print(results)
+        print(type(res1), type(res2), type(res3))
+    [h_uv, img_ndvi, img_ndwi] = res1
+    
+#        all_blocks = results[0][0] + results[1][0] + results[2][0]
+#        red_blocks = results[0][1] + results[1][1] + results[2][1]
+        
     mappes_binaires = []
-    print("paire 1...")
-    cfg.identiques = True
-    [h_uv, img_ndvi, img_ndwi] = calculer_mappe_binaire(cfg, im1, im2, im1, im1)
+#com    print("paire 1...")
+#com    cfg.identiques = True
+#com    [h_uv, img_ndvi, img_ndwi] = calculer_mappe_binaire(
+#com        cfg, im1, im2, im1, im1, ref_identiques
+#com    )
     mappes_binaires += [h_uv]
-
     huvl_original = np.array(255 * h_uv, dtype=np.uint8)
     iio.write(join(cfg.repout, "huvl_original.png"), huvl_original)
 
     print("paire 2...")
     cfg.identiques = False
-    h_uv = calculer_mappe_binaire(cfg, im1, im2, antea1, antea2)
+    h_uv = res2
+#com    h_uv = calculer_mappe_binaire(
+#com        cfg, im1, im2, antea1, antea2, ref_identiques
+#com    )
     mappes_binaires += [h_uv]
     print("paire 3...")
     cfg.identiques = False
-    h_uv = calculer_mappe_binaire(cfg, im1, im2, anteb1, anteb2)
+#com    h_uv = calculer_mappe_binaire(
+#com        cfg, im1, im2, anteb1, anteb2, ref_identiques
+#com    )
+    h_uv = res3
     mappes_binaires += [h_uv]
     mappes = np.array(mappes_binaires)
+
     # vote majoritaire
     mappe = 1 * np.sum(mappes, axis=0) >= 2
 
@@ -770,7 +799,7 @@ def comparer_par_triplet(cfg):
     return 0
 
 
-def calculer_mappe_binaire(cfg, image1, image2, ante1, ante2):
+def calculer_mappe_binaire(cfg, image1, image2, ante1, ante2, ref_ident):
     """
     ...
     """
@@ -795,7 +824,7 @@ def calculer_mappe_binaire(cfg, image1, image2, ante1, ante2):
     ante2 = np.mean(ante2, axis=2)
     assert im1.shape == im2.shape and im1.shape == ante1.shape
 
-    h_uv, pfal = algorithme(cfg, im1, im2, ante1, ante2, 0)
+    h_uv, pfal = algorithme(cfg, im1, im2, ante1, ante2, 0, ref_ident)
 
     if cfg.debug:
         g_uv = normaliser_image(h_uv)
@@ -803,7 +832,7 @@ def calculer_mappe_binaire(cfg, image1, image2, ante1, ante2):
         g_pfal = calorifier_image(pfal)
         iio.write(join(cfg.repout, "pfal.png"), g_pfal)
 
-    if cfg.identiques:
+    if ref_ident:
         return [h_uv, img_ndvi2, img_ndwi2]
 
     return h_uv
