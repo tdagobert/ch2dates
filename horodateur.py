@@ -43,7 +43,8 @@ def main():
     # liste ordonnées des fichiers contenus dans le zip
     zip = zipfile.ZipFile(cfg.zip)
     fichiers = sorted(zip.namelist())
-    print("fichiers:", fichiers)
+#    print("fichiers:", fichiers)
+#    exit()
     # récupération des dates concernés et conversion des dates au format
     # numériques
     mesdates = [
