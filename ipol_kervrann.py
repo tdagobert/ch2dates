@@ -41,13 +41,12 @@ decision fusion for redundancy detection in image pairs".
 import os
 from os.path import exists, join
 import argparse
+import timeit
 import numpy as np
-# import iio
 from scipy.ndimage import gaussian_filter
 from scipy.special import factorial
 from matplotlib import cm
-import timeit
-import numba as nb
+
 from numba import njit
 import imageio as iio
 
@@ -59,7 +58,7 @@ def gerer_bords(img):
     """
     nlig, ncol, ncan = img.shape
     for k in np.arange(ncan):
-        
+
         # remplacement des colonnes
         for i in np.arange(nlig):
             j = 0
@@ -91,7 +90,7 @@ def gerer_bords(img):
                 i += 1
             # remplacement des colonnes de droite
             img[i:nlig, j, k] = img[i-1, j, k]
-    
+
     return img
 
 
@@ -112,7 +111,7 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
 
     nlig, ncol = u.shape
     demi_b = b // 2
-    
+
     # résultat
     phi_uvl = np.nan * np.ones((nlig, ncol, b**2))
 
@@ -124,11 +123,11 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
     for xi in np.arange(nlig):
 #        print(xi)
         for xj in np.arange(ncol):
-            
+
             # test aux limites
             if xi-l < 0 or nlig <= xi+l or xj-l < 0 or ncol <= xj+l:
                 continue
-            
+
             # voisinage de x
             if metrique == "l2":
                 uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
@@ -137,21 +136,21 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
             elif metrique == "correlation":
                 uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
             elif metrique == "lin":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]                
+                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
             elif metrique == "zncc":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]                
+                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
                 muu = np.mean(uu)
             k = 0
             for m in np.arange(-demi_b, demi_b + 1):
                 for n in np.arange(-demi_b, demi_b + 1):
                     yi = xi + m
                     yj = xj + n
-                    
+
                     # test aux limites
                     if yi-l < 0 or nlig <= yi+l or yj-l < 0 or ncol <= yj+l:
                         k += 1
                         continue
-                    
+
                     # voisinage de y
                     vv = v[yi-l:yi+l+1, yj-l:yj+l+1]
 
@@ -169,10 +168,10 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
                             phi_uvl[xi, xj, k] = (
                                 max(suu, svv)
                                 * (1 - np.sum(uu * vv)**2 / (suu * svv))
-                            )   
+                            )
                         elif metrique == "correlation":
                             phi_uvl[xi, xj, k] = (
-                                1 
+                                1
                                 - np.sum(uu * vv) /
                                 (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv))
                                  )
@@ -184,7 +183,7 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
                                 - np.sum((uu - muu) * (vv - mvv))
                                 /(vv.size * np.std(uu) * np.std(vv))
                             )
-                                
+
                     k += 1
 
     phi_uvl = gerer_bords(phi_uvl)
@@ -237,7 +236,7 @@ def calculer_pfas(cfg, im1, im2, ican):
             iio.imwrite(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
 
         # calcul de φ(u, v, l)
-        im2_rho = gaussian_filter(im2, cfg.sigma)        
+        im2_rho = gaussian_filter(im2, cfg.sigma)
         phi_uvl = calculer_phi(
             im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metrique
         )
@@ -252,7 +251,7 @@ def calculer_pfas(cfg, im1, im2, ican):
                 except ValueError:
                     pass
         tau_l_mean = np.nanmean(np.array(tau_l_mean))
-#        exit() 
+#        exit()
 #        tau_l_mean =compute_tau_l_mean(phi_uul)
         print(f"# calcul de τ_mean(l) d'après (5.1) {tau_l_mean:3.5e}")
 
@@ -386,7 +385,6 @@ def lit_parametres():
         "--ndwi-threshold", type=float, required=False, default=0.5,
         help="NDWI seuil."
     )
-    
 
     cfg = parser.parse_args()
 
@@ -411,7 +409,7 @@ def normaliser_image(img, sat=None):
     img[img<0.0] = 0.0
     print("shape",img.shape)
 
-    img = np.array(img, dtype=np.uint8)    
+    img = np.array(img, dtype=np.uint8)
     return img
 
 
@@ -428,40 +426,51 @@ def calorifier_image(img, apply_log=True):
 
     return img
 
-
-def compute_index_maps(cfg, img):
+def convert_to_gray_image(img):
     """
-    If the image contains 4 channels, we assume it is a Sentinel-1 image with
-    the B04, B03, B02, B08 channels storage in this order. We retrieve the
-    B08 to compute the NDVI index…
+    Convert an RGB image into a gray level one. If the image contains 4
+    channels, we assume it is a Sentinel-2 image with the B04, B03, B02, B08
+    channels storage in this order.
     """
     nlig, ncol, ncan = img.shape
-
-    if ncan == 4:
-        # we compute the NDVI index, where values stand in [-1, +1]
-        ndvi = (img[:, :, 3] - img[:, :, 0]) / (img[:, :, 3] + img[:, :, 0])
-        ndvi = np.expand_dims(ndvi, axis=-1)
-        # we normalize
-        img_ndvi = normaliser_image(ndvi)
-#        g_can = 255 * np.ones((nlig, ncol, 1))
-#        can = 255 * (1 - (ndvi + 1) / 2)
-#        img_ndvi = np.concatenate((can, g_can, can), axis=2)
-
-        # we compute the NDWI index, where values stand in [-1, +1]
-        ndwi = (img[:, :, 1] - img[:, :, 3]) / (img[:, :, 1] + img[:, :, 3])
-        ndwi = np.expand_dims(ndwi, axis=-1)
-        # we normalize
-        img_ndwi = normaliser_image(ndwi)
-#        b_can = 255 * np.ones((nlig, ncol, 1))
-#        can = 255 * (1 - (ndwi + 1) / 2)
-#        img_ndwi = np.concatenate((can, can, b_can), axis=2)
-
-        img = img[:, :, 0:3]
-        
-        return img, img_ndvi, ndvi, img_ndwi, ndwi
-    else:
-        return img, None, None, None, None
-
+    img = img[:, :, 0:3]
+    img = np.mean(img, axis=1)
+    return img
+#com
+#com
+#comdef compute_index_maps(cfg, img):
+#com    """
+#com    If the image contains 4 channels, we assume it is a Sentinel-1 image with
+#com    the B04, B03, B02, B08 channels storage in this order. We retrieve the
+#com    B08 to compute the NDVI index…
+#com    """
+#com    nlig, ncol, ncan = img.shape
+#com
+#com    if ncan == 4:
+#com        # we compute the NDVI index, where values stand in [-1, +1]
+#com        ndvi = (img[:, :, 3] - img[:, :, 0]) / (img[:, :, 3] + img[:, :, 0])
+#com        ndvi = np.expand_dims(ndvi, axis=-1)
+#com        # we normalize
+#com        img_ndvi = normaliser_image(ndvi)
+#com#        g_can = 255 * np.ones((nlig, ncol, 1))
+#com#        can = 255 * (1 - (ndvi + 1) / 2)
+#com#        img_ndvi = np.concatenate((can, g_can, can), axis=2)
+#com
+#com        # we compute the NDWI index, where values stand in [-1, +1]
+#com        ndwi = (img[:, :, 1] - img[:, :, 3]) / (img[:, :, 1] + img[:, :, 3])
+#com        ndwi = np.expand_dims(ndwi, axis=-1)
+#com        # we normalize
+#com        img_ndwi = normaliser_image(ndwi)
+#com#        b_can = 255 * np.ones((nlig, ncol, 1))
+#com#        can = 255 * (1 - (ndwi + 1) / 2)
+#com#        img_ndwi = np.concatenate((can, can, b_can), axis=2)
+#com
+#com        img = img[:, :, 0:3]
+#com
+#com        return img, img_ndvi, ndvi, img_ndwi, ndwi
+#com    else:
+#com        return img, None, None, None, None
+#com
 
 def main():
     """
@@ -476,8 +485,10 @@ def main():
     if not exists(cfg.repout):
         os.mkdir(cfg.repout)
 
-    im1, img_ndvi1, ndvi1, img_ndwi1, ndwi1 = compute_index_maps(cfg, im1)
-    im2, img_ndvi2, ndvi2, img_ndwi2, ndwi2 = compute_index_maps(cfg, im2)
+    im1 = convert_to_gray_image(im1)
+    im2 = convert_to_gray_image(im2)
+    im1 = im1.reshape(nlig, ncol, 1)
+    im2 = im2.reshape(nlig, ncol, 1)
 
     iio.imwrite(
         join(cfg.repout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
@@ -486,13 +497,6 @@ def main():
         join(cfg.repout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
     )
 
-    nlig, ncol, _ = im1.shape
-    im1 = np.mean(im1, axis=2)
-    im1 = im1.reshape(nlig, ncol, 1)
-
-    im2 = np.mean(im2, axis=2)
-    im2 = im2.reshape(nlig, ncol, 1)
-
     nlig, ncol, ncan = im1.shape
     for n in np.arange(ncan):
         h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
@@ -500,41 +504,6 @@ def main():
         iio.imwrite(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
         pfal = calorifier_image(pfal)
         iio.imwrite(join(cfg.repout, f"pfal_c{n}.png"), pfal)
-
-    print(img_ndvi1)
-    # NDVI filtering if any
-#    h_uv = np.ones((nlig, ncol, 1))
-    if img_ndvi1 is not None:
-#        iio.imwrite(join(cfg.repout, "ndvi1.png"), img_ndvi1)
-        iio.imwrite(join(cfg.repout, "ndvi2.png"), img_ndvi2)
-#        iio.imwrite(join(cfg.repout, "ndwi1.png"), img_ndwi1)
-        iio.imwrite(join(cfg.repout, "ndwi2.png"), img_ndwi2)
-        
-#        iio.imwrite(join(cfg.repout, "ndvi1.tif"), ndvi1)
-#        iio.imwrite(join(cfg.repout, "ndwi1.tif"), ndwi1)
-        # L'idée est de supprimer tous les changements qui sont du type
-        # végétation--> végétation ou du type non-végétation--> végétation.
-        # i.e. dès que im2 est végétation
-        # Roughly the NDVI index caracterizes dense vegetation for values > 0.1
-        img_veget = ndvi2 > cfg.ndvi_threshold
-        img_veget = img_veget.squeeze()
-#        iio.imwrite(join(cfg.repout, f"veget.tif"), img_veget)
-        himg = np.copy(h_uv)
-        himg[img_veget] = 0
-        img_veget = np.array(255 * img_veget, dtype=np.uint8)
-        iio.imwrite(join(cfg.repout, f"ndvi_filtre.png"), img_veget)
-        iio.imwrite(join(cfg.repout, f"huvl_ndvi.png"), himg)
-        # Roughly the NDWI index caracterizes water for values >= 0.5
-        # custom-scripts.sentinel-hub.com/custom-scripts/sentinel-2/ndwi/
-        img_water = ndwi2 >= cfg.ndwi_threshold
-        img_water = img_water.squeeze()        
-        himg = np.copy(h_uv)
-        himg[img_water] = 0
-
-        img_water = np.array(255 * img_water, dtype=np.uint8)
-        iio.imwrite(join(cfg.repout, f"ndwi_filtre.png"), img_water)        
-        iio.imwrite(join(cfg.repout, f"huvl_ndwi.png"), himg)
-        
     return 0
 
 
