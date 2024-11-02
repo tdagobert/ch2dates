@@ -228,7 +228,7 @@ def calculer_pfas(cfg, im1, im2, ican):
         im1_rho = gaussian_filter(im1, cfg.sigma)
         phi_uul = calculer_phi(
             im1, im1, im1_rho, im1_rho, l,
-            cfg.b, cfg.sigma, cfg.metrique, est_uu=True
+            cfg.b, cfg.sigma, cfg.metric, est_uu=True
         )
         print(phi_uul.shape)
         nlig, ncol, ncan = phi_uul.shape
@@ -238,7 +238,7 @@ def calculer_pfas(cfg, im1, im2, ican):
         # calcul de φ(u, v, l)
         im2_rho = gaussian_filter(im2, cfg.sigma)
         phi_uvl = calculer_phi(
-            im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metrique
+            im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metric
         )
 
         # calcul de τ_mean(l) d'après (5.1)
@@ -266,7 +266,7 @@ def calculer_pfas(cfg, im1, im2, ican):
 
                 except ValueError:
                     pass
-#        iio.imwrite(join(cfg.repout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
+#        iio.imwrite(join(cfg.dirout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
         print("# calcul de τ(u, l) d'après (5.1)")
         # calcul de S_Nl
         S_Nl = np.zeros((nlig, ncol))
@@ -276,7 +276,7 @@ def calculer_pfas(cfg, im1, im2, ican):
                     S_Nl[i, j] = np.sum(phi_uvl[i, j, :] >= tau_ul[i, j])
                 except ValueError:
                     pass
-#        iio.imwrite(join(cfg.repout, f"snl{l}_c{ican}.tif"), S_Nl)
+#        iio.imwrite(join(cfg.dirout, f"snl{l}_c{ican}.tif"), S_Nl)
         # calcul de decision_l d'après (4.1)
         decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
         decisions += [decision_l]
@@ -341,13 +341,13 @@ def algorithme(cfg, im1, im2, ican):
     return h_uv, pfal
 
 
-def lit_parametres():
+def load_parameters():
     """
     …
     """
 
-    d = "Compute the changes between two images."
-    parser = argparse.ArgumentParser(description=d)
+    desc = "Compute the changes between two images."
+    parser = argparse.ArgumentParser(description=desc)
     parser.add_argument(
         "--image1", type=str, required=True, help="First image."
     )
@@ -355,27 +355,31 @@ def lit_parametres():
         "--image2", type=str, required=True, help="Second image."
     )
     parser.add_argument(
-        "--scale", type=int, required=False, help="Nombre d'échelles."
-        , default=2
+        "--scale", type=int, required=False, help="Number of scales.", default=2
     )
     parser.add_argument(
-        "--b", type=int, required=False, default=3, help="Voisinage de τ."
+        "--b", type=int, required=False, default=3,
+        help="Side of the square neighborhood of x."
     )
     parser.add_argument(
-        "--metrique", type=str, required=False, help="Distance.",
+        "--B", type=int, required=False, default=3,
+        help="Side of the square search window related to x."
+    )
+    parser.add_argument(
+        "--metric", type=str, required=False, help="Dissimilarity measure.",
         choices=["correlation", "l2", "ratio", "zncc", "lin"], default="l2"
     )
     parser.add_argument(
         "--epsilon", type=float, required=False, default=1.0,
-        help="Nombre de fausses alarmes."
+        help="Number of false alarms threshold."
     )
     parser.add_argument(
         "--sigma", type=float, required=False, default=0.8,
-        help="Écart type du noyau de flou."
+        help="Standard deviation of the blur kernel."
     )
     parser.add_argument(
-        "--repout", type=str, required=False, default="./",
-        help="Répertoire de sortie."
+        "--dirout", type=str, required=False, default="./",
+        help="Output directory."
     )
     parser.add_argument(
         "--ndvi-threshold", type=float, required=False, default=0.1,
@@ -414,6 +418,9 @@ def normaliser_image(img, sat=None):
 
 
 def calorifier_image(img, apply_log=True):
+    """
+    Make a jetcolor image map.
+    """
     if apply_log:
         img = np.log(img)
         mini = np.min(img)
@@ -476,7 +483,7 @@ def main():
     ...
     """
 
-    cfg = lit_parametres()
+    cfg = load_parameters()
 
     im1 = iio.imread(cfg.image1)
     im2 = iio.imread(cfg.image2)
@@ -484,21 +491,21 @@ def main():
     im2 = convert_to_gray_image(im2)
 #    im1 = im1.reshape(nlig, ncol, 1)
 #    im2 = im2.reshape(nlig, ncol, 1)
-    if not exists(cfg.repout):
-        os.mkdir(cfg.repout)
+    if not exists(cfg.dirout):
+        os.mkdir(cfg.dirout)
 
     iio.imwrite(
-        join(cfg.repout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
+        join(cfg.dirout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
     )
     iio.imwrite(
-        join(cfg.repout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
+        join(cfg.dirout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
     )
 
     h_uv, pfal = algorithme(cfg, im1, im2, 0)
     h_uv = normaliser_image(h_uv)
-    iio.imwrite(join(cfg.repout, "huvl.png"), h_uv)
+    iio.imwrite(join(cfg.dirout, "huvl.png"), h_uv)
     pfal = calorifier_image(pfal)
-    iio.imwrite(join(cfg.repout, "pfal.png"), pfal)
+    iio.imwrite(join(cfg.dirout, "pfal.png"), pfal)
     return 0
 
 if __name__ == "__main__":
@@ -507,5 +514,5 @@ if __name__ == "__main__":
     #main()
 
     #Lignes de commandes
-    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation --repout mcor_s2_b3_eps1_sig0.8
-    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique ratio --repout mrat_s2_b3_eps1_sig0.8
+    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation --dirout mcor_s2_b3_eps1_sig0.8
+    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique ratio --dirout mrat_s2_b3_eps1_sig0.8
