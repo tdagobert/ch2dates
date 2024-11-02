@@ -381,15 +381,6 @@ def load_parameters():
         "--dirout", type=str, required=False, default="./",
         help="Output directory."
     )
-    parser.add_argument(
-        "--ndvi-threshold", type=float, required=False, default=0.1,
-        help="NDVI seuil."
-    )
-    parser.add_argument(
-        "--ndwi-threshold", type=float, required=False, default=0.5,
-        help="NDWI seuil."
-    )
-
     cfg = parser.parse_args()
 
     return cfg
