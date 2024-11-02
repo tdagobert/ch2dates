@@ -481,14 +481,12 @@ def main():
 
     im1 = iio.imread(cfg.image1)
     im2 = iio.imread(cfg.image2)
-
-    if not exists(cfg.repout):
-        os.mkdir(cfg.repout)
-
     im1 = convert_to_gray_image(im1)
     im2 = convert_to_gray_image(im2)
-    im1 = im1.reshape(nlig, ncol, 1)
-    im2 = im2.reshape(nlig, ncol, 1)
+#    im1 = im1.reshape(nlig, ncol, 1)
+#    im2 = im2.reshape(nlig, ncol, 1)
+    if not exists(cfg.repout):
+        os.mkdir(cfg.repout)
 
     iio.imwrite(
         join(cfg.repout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
@@ -497,15 +495,12 @@ def main():
         join(cfg.repout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
     )
 
-    nlig, ncol, ncan = im1.shape
-    for n in np.arange(ncan):
-        h_uv, pfal = algorithme(cfg, im1[:, :, n], im2[:, :, n], n)
-        h_uv = normaliser_image(h_uv)
-        iio.imwrite(join(cfg.repout, f"huvl_c{n}.png"), h_uv)
-        pfal = calorifier_image(pfal)
-        iio.imwrite(join(cfg.repout, f"pfal_c{n}.png"), pfal)
+    h_uv, pfal = algorithme(cfg, im1, im2, 0)
+    h_uv = normaliser_image(h_uv)
+    iio.imwrite(join(cfg.repout, f"huvl.png"), h_uv)
+    pfal = calorifier_image(pfal)
+    iio.imwrite(join(cfg.repout, f"pfal.png"), pfal)
     return 0
-
 
 if __name__ == "__main__":
     execution_time = timeit.timeit(main, number=1)
