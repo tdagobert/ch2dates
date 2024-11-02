@@ -432,7 +432,6 @@ def convert_to_gray_image(img):
     channels, we assume it is a Sentinel-2 image with the B04, B03, B02, B08
     channels storage in this order.
     """
-    nlig, ncol, ncan = img.shape
     img = img[:, :, 0:3]
     img = np.mean(img, axis=1)
     return img
@@ -497,9 +496,9 @@ def main():
 
     h_uv, pfal = algorithme(cfg, im1, im2, 0)
     h_uv = normaliser_image(h_uv)
-    iio.imwrite(join(cfg.repout, f"huvl.png"), h_uv)
+    iio.imwrite(join(cfg.repout, "huvl.png"), h_uv)
     pfal = calorifier_image(pfal)
-    iio.imwrite(join(cfg.repout, f"pfal.png"), pfal)
+    iio.imwrite(join(cfg.repout, "pfal.png"), pfal)
     return 0
 
 if __name__ == "__main__":
