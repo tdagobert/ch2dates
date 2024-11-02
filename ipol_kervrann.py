@@ -290,18 +290,22 @@ def calculer_pfas(cfg, im1, im2, ican):
     return pfas, decisions
 
 
-def calculer_pfal(kd, lambda_n, nlig, ncol):
+def calculer_pfal(kd, lambdaa, nlig, ncol):
     """
-    lambda_n : float
+    Computation of the probability of false alarms.
+    kd: np.array ndim=(nlig, ncol)
+    lambdaa : float
+    nlig : int
+    ncol : int
     """
     pfal = np.zeros((nlig, ncol))
 
     for i in np.arange(nlig):
         for j in np.arange(ncol):
             for k in np.arange(kd[i, j] + 1):
-#                print(k, lambda_n)
+#                print(k, lambdaa)
                 pfal[i, j] += (
-                    (lambda_n)**k / factorial(k) * np.exp(-lambda_n)
+                    (lambdaa)**k / factorial(k) * np.exp(-lambdaa)
                 )
             pfal[i, j] = 1 - pfal[i, j]
     return pfal
@@ -309,34 +313,34 @@ def calculer_pfal(kd, lambda_n, nlig, ncol):
 
 def calculer_alpha(epsilon, nlig, ncol, pfal):
     """
-    D'après la formule de l'algorithme.
+    Compute the alpha threshold.
     """
     alpha = np.max((epsilon/(nlig*ncol), np.min(pfal)))
     return alpha
 
 
-def algorithme(cfg, im1, im2, ican):
+def algorithm(cfg, im1, im2, ican):
     """
     cfg: Namespace
     im1: np.array ndim=(nlig, ncol)
     im2: np.array ndim=(nlig, ncol)
     ican : int
-        Index du canal.
+        Channel index.
     """
     nlig, ncol = im1.shape
     pfas, decisions = calculer_pfas(cfg, im1, im2, ican)
     lambda_n = np.sum(np.array(pfas))
     print(f"lambda_n {lambda_n}")
-    # calcul de kd
+    # compute the positive decisions kd
     kd = np.sum(decisions, axis=0)
 
-    # calcul de P_FA(x, L) pour tout x
+    # compute P_FA(x, L) for all x
     pfal = calculer_pfal(kd, lambda_n, nlig, ncol)
 
-    # calcul de α
+    # Computation of the uniform threshold α to detect meaningful changes
     alpha = calculer_alpha(cfg.epsilon, nlig, ncol, pfal)
 
-    # test d'hypothèse
+    # Computation of the change detection map
     h_uv = np.uint8(pfal <= alpha)
     return h_uv, pfal
 
@@ -492,7 +496,7 @@ def main():
         join(cfg.dirout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
     )
 
-    h_uv, pfal = algorithme(cfg, im1, im2, 0)
+    h_uv, pfal = algorithm(cfg, im1, im2, 0)
     h_uv = normaliser_image(h_uv)
     iio.imwrite(join(cfg.dirout, "huvl.png"), h_uv)
     pfal = calorifier_image(pfal)
