@@ -204,15 +204,15 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
 # alt    return tau_l_mean
 
 
-def calculer_pfas(cfg, im1, im2, ican):
+def calculer_pfas(cfg, im1, im2):
     """
-    Paramètres
+    Parameters
     ----------
     cfg: Namespace
     im1: np.array(nlig, ncol)
     im2: np.array(nlig, ncol)
     ican: int
-    Retour
+    Return
     ------
     decisions: np.array(L, nlig, ncol)
     pfas: np.array(L, nlig, ncol)
@@ -222,9 +222,8 @@ def calculer_pfas(cfg, im1, im2, ican):
     pfas = []
     decisions = []
     for l in np.arange(1, cfg.scale+1):
-#    for l in [cfg.scale]:
-        print(f"Échelle {l}")
-        # calcul de φ(u, u, l)
+        print(f"Scale {l}")
+        # computation of φ(u, u, l)
         im1_rho = gaussian_filter(im1, cfg.sigma)
         phi_uul = calculer_phi(
             im1, im1, im1_rho, im1_rho, l,
@@ -235,13 +234,13 @@ def calculer_pfas(cfg, im1, im2, ican):
         for n in np.arange(ncan):
             iio.imwrite(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
 
-        # calcul de φ(u, v, l)
+        # computation of φ(u, v, l)
         im2_rho = gaussian_filter(im2, cfg.sigma)
         phi_uvl = calculer_phi(
             im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metric
         )
 
-        # calcul de τ_mean(l) d'après (5.1)
+        # computation of τ_mean(l)
         tau_l_mean = []
         for i in np.arange(nlig):
             for j in np.arange(ncol):
@@ -251,11 +250,10 @@ def calculer_pfas(cfg, im1, im2, ican):
                 except ValueError:
                     pass
         tau_l_mean = np.nanmean(np.array(tau_l_mean))
-#        exit()
-#        tau_l_mean =compute_tau_l_mean(phi_uul)
+
         print(f"# calcul de τ_mean(l) d'après (5.1) {tau_l_mean:3.5e}")
 
-        # calcul de τ(u, l) d'après (5.1)
+        # computation of τ(u, l)
         tau_ul = np.zeros((nlig, ncol))
         for i in np.arange(nlig):
             for j in np.arange(ncol):
@@ -263,12 +261,11 @@ def calculer_pfas(cfg, im1, im2, ican):
                     tau_ul[i, j] = np.nanmax(
                         (np.nanmax(phi_uul[i, j, :]), tau_l_mean)
                     )
-
                 except ValueError:
                     pass
-#        iio.imwrite(join(cfg.dirout, f"tau_ul_s{l}_c{ican}.tif"), tau_ul)
+#        iio.imwrite(join(cfg.dirout, f"tau_ul_s{l}.tif"), tau_ul)
         print("# calcul de τ(u, l) d'après (5.1)")
-        # calcul de S_Nl
+        # computation of S_Nl
         S_Nl = np.zeros((nlig, ncol))
         for i in np.arange(nlig):
             for j in np.arange(ncol):
@@ -276,12 +273,12 @@ def calculer_pfas(cfg, im1, im2, ican):
                     S_Nl[i, j] = np.sum(phi_uvl[i, j, :] >= tau_ul[i, j])
                 except ValueError:
                     pass
-#        iio.imwrite(join(cfg.dirout, f"snl{l}_c{ican}.tif"), S_Nl)
-        # calcul de decision_l d'après (4.1)
+#        iio.imwrite(join(cfg.dirout, f"snl{l}.tif"), S_Nl)
+        # computation of the positive decisions
         decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
         decisions += [decision_l]
 
-        # calcul de pfa_l
+        # computation of pfa_l
         pfa_l =  np.nanmean(np.exp(S_Nl - (cfg.b * cfg.b)))
         pfas += [pfa_l]
 
@@ -290,7 +287,7 @@ def calculer_pfas(cfg, im1, im2, ican):
     return pfas, decisions
 
 
-def calculer_pfal(kd, lambdaa, nlig, ncol):
+def calculer_pfal(k_d, lambdaa, nlig, ncol):
     """
     Computation of the probability of false alarms.
     kd: np.array ndim=(nlig, ncol)
@@ -302,7 +299,7 @@ def calculer_pfal(kd, lambdaa, nlig, ncol):
 
     for i in np.arange(nlig):
         for j in np.arange(ncol):
-            for k in np.arange(kd[i, j] + 1):
+            for k in np.arange(k_d[i, j] + 1):
 #                print(k, lambdaa)
                 pfal[i, j] += (
                     (lambdaa)**k / factorial(k) * np.exp(-lambdaa)
@@ -319,23 +316,21 @@ def calculer_alpha(epsilon, nlig, ncol, pfal):
     return alpha
 
 
-def algorithm(cfg, im1, im2, ican):
+def algorithm(cfg, im1, im2):
     """
     cfg: Namespace
     im1: np.array ndim=(nlig, ncol)
     im2: np.array ndim=(nlig, ncol)
-    ican : int
-        Channel index.
     """
     nlig, ncol = im1.shape
-    pfas, decisions = calculer_pfas(cfg, im1, im2, ican)
+    pfas, decisions = calculer_pfas(cfg, im1, im2)
     lambda_n = np.sum(np.array(pfas))
     print(f"lambda_n {lambda_n}")
     # compute the positive decisions kd
-    kd = np.sum(decisions, axis=0)
+    k_d = np.sum(decisions, axis=0)
 
     # compute P_FA(x, L) for all x
-    pfal = calculer_pfal(kd, lambda_n, nlig, ncol)
+    pfal = calculer_pfal(k_d, lambda_n, nlig, ncol)
 
     # Computation of the uniform threshold α to detect meaningful changes
     alpha = calculer_alpha(cfg.epsilon, nlig, ncol, pfal)
@@ -496,7 +491,7 @@ def main():
         join(cfg.dirout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
     )
 
-    h_uv, pfal = algorithm(cfg, im1, im2, 0)
+    h_uv, pfal = algorithm(cfg, im1, im2)
     h_uv = normaliser_image(h_uv)
     iio.imwrite(join(cfg.dirout, "huvl.png"), h_uv)
     pfal = calorifier_image(pfal)
