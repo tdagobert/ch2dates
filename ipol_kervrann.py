@@ -51,150 +51,148 @@ from numba import njit
 import imageio as iio
 
 @njit
-def gerer_bords(img):
+def handle_boundaries(img):
     """
-    Remplacement des valeurs NaN situées sur les bords, par les valeurs
-    situées sur la frontière.
+    Replacement of NaN values located on the edges,
+    by the values located on the boundaries.
+    Parameters
+    ----------
+    img : np.array ndim=(nrow, ncol, ncan)
     """
-    nlig, ncol, ncan = img.shape
+    nrow, ncol, ncan = img.shape
     for k in np.arange(ncan):
-
-        # remplacement des colonnes
-        for i in np.arange(nlig):
+        # replacement of columns
+        for i in np.arange(nrow):
             j = 0
             while j < ncol and np.isnan(img[i, j, k]):
                 j += 1
-            # toute la ligne est NaN
+            # entire line is NaN
             if j == ncol:
                 continue
-            # remplacement des colonnes de gauche
+            # replacement of left columns
             img[i, 0:j, k] = img[i, j, k]
 
             while not np.isnan(img[i, j, k]):
                 j += 1
-            # remplacement des colonnes de droite
+            # replacement of right columns
             img[i, j:ncol, k] = img[i, j-1, k]
 
-        # remplacement des lignes
+        # replacement of lines
         for j in np.arange(ncol):
             i = 0
-            while i < nlig and np.isnan(img[i, j, k]):
+            while i < nrow and np.isnan(img[i, j, k]):
                 i += 1
-            # toute la colonne est NaN
-            if i == nlig:
+            # entire column is NaN
+            if i == nrow:
                 continue
-            # remplacement des lignes du haut
+            # replacement of top lines
             img[0:i, j, k] = img[i, j, k]
 
             while not np.isnan(img[i, j, k]):
                 i += 1
-            # remplacement des colonnes de droite
-            img[i:nlig, j, k] = img[i-1, j, k]
+            # replacement of right colums
+            img[i:nrow, j, k] = img[i-1, j, k]
 
     return img
 
 
 @njit
-def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
+def compute_phi(imu, imv, u_rho, v_rho, l, b, metric, is_uu=False):
     """
-    D'après la formule (2.2).
-    Paramètres
+    Parameters
     ----------
-    u : np.array ndim=(nlig, ncol)
-        Image de référence.
-    v : np.array ndim=(nlig, ncol)
-        Image de comparaison.
+    imu : np.array ndim=(nrow, ncol)
+        Reference image.
+    imv : np.array ndim=(nrow, ncol)
+        Compared image.
     l : int
-        Demi-côté de la vignette carrée.
-    cfg : Namespace
+        Half side of the square patch.
+    b : int
+        Side of the square search window.
+    metric : str
+        Name of metric used.
+    is_uu : bool
+        Indicate if pair of parameters (u, v) is (u, u) or not.
     """
 
-    nlig, ncol = u.shape
-    demi_b = b // 2
+    nrow, ncol = imu.shape
+    half_b = b // 2
 
-    # résultat
-    phi_uvl = np.nan * np.ones((nlig, ncol, b**2))
+    # initialization
+    phi_uvl = np.nan * np.ones((nrow, ncol, b**2))
 
-    # images filtrées
-#    u_rho = gaussian_filter(u, sigma)
-#    v_rho = gaussian_filter(v, sigma)
-
-    # calcul pixellien
-    for xi in np.arange(nlig):
-#        print(xi)
-        for xj in np.arange(ncol):
-
-            # test aux limites
-            if xi-l < 0 or nlig <= xi+l or xj-l < 0 or ncol <= xj+l:
+    # computation per pixel
+    for x_i in np.arange(nrow):
+        for x_j in np.arange(ncol):
+            # limits tests
+            if x_i-l < 0 or nrow <= x_i+l or x_j-l < 0 or ncol <= x_j+l:
                 continue
-
-            # voisinage de x
-            if metrique == "l2":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1] - u_rho[xi, xj]
-            elif metrique == "ratio":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
-            elif metrique == "correlation":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
-            elif metrique == "lin":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
-            elif metrique == "zncc":
-                uu = u[xi-l:xi+l+1, xj-l:xj+l+1]
-                muu = np.mean(uu)
+            # neighborhood of x
+            if metric == "l2":
+                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1] - u_rho[x_i, x_j]
+            elif metric == "ratio":
+                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
+            elif metric == "correlation":
+                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
+            elif metric == "lin":
+                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
+            elif metric == "zncc":
+                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
+                muu = np.mean(tilu)
             k = 0
-            for m in np.arange(-demi_b, demi_b + 1):
-                for n in np.arange(-demi_b, demi_b + 1):
-                    yi = xi + m
-                    yj = xj + n
+            for m in np.arange(-half_b, half_b + 1):
+                for n in np.arange(-half_b, half_b + 1):
+                    y_i = x_i + m
+                    y_j = x_j + n
 
-                    # test aux limites
-                    if yi-l < 0 or nlig <= yi+l or yj-l < 0 or ncol <= yj+l:
+                    # limits tests
+                    if y_i-l < 0 or nrow <= y_i+l or y_j-l < 0 or ncol <= y_j+l:
                         k += 1
                         continue
 
-                    # voisinage de y
-                    vv = v[yi-l:yi+l+1, yj-l:yj+l+1]
+                    # neighborhood of y
+                    tilv = imv[y_i-l:y_i+l+1, y_j-l:y_j+l+1]
 
                     # calcul de la distance
-                    if not est_uu or (est_uu and not (yi == xi and yj == xj)):
-                        if metrique == "l2":
-                            vv = vv - v_rho[yi, yj]
-                            phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
-                        elif metrique == "ratio":
-                            vv = vv * (u_rho[xi, xj] / v_rho[yi, yj])
-                            phi_uvl[xi, xj, k] = np.sum((uu - vv)**2)
-                        elif metrique == "lin":
-                            suu = np.sum(uu*uu)
-                            svv = np.sum(vv*vv)
-                            phi_uvl[xi, xj, k] = (
+                    if not is_uu or (is_uu and not (y_i == x_i and y_j == x_j)):
+                        if metric == "l2":
+                            tilv = tilv - v_rho[y_i, y_j]
+                            phi_uvl[x_i, x_j, k] = np.sum((tilu - tilv)**2)
+                        elif metric == "ratio":
+                            tilv = tilv * (u_rho[x_i, x_j] / v_rho[y_i, y_j])
+                            phi_uvl[x_i, x_j, k] = np.sum((tilu - tilv)**2)
+                        elif metric == "lin":
+                            suu = np.sum(tilu*tilu)
+                            svv = np.sum(tilv*tilv)
+                            phi_uvl[x_i, x_j, k] = (
                                 max(suu, svv)
-                                * (1 - np.sum(uu * vv)**2 / (suu * svv))
+                                * (1 - np.sum(tilu * tilv)**2 / (suu * svv))
                             )
-                        elif metrique == "correlation":
-                            phi_uvl[xi, xj, k] = (
+                        elif metric == "correlation":
+                            phi_uvl[x_i, x_j, k] = (
                                 1
-                                - np.sum(uu * vv) /
-                                (np.sqrt(np.sum(uu*uu)) * np.sqrt(np.sum(vv*vv))
+                                - np.sum(tilu * tilv) /
+                                (np.sqrt(np.sum(tilu*tilu)) * np.sqrt(np.sum(tilv*tilv))
                                  )
                             )
-                        elif metrique == "zncc":
-                            mvv = np.mean(vv)
-                            phi_uvl[xi, xj, k] = (
+                        elif metric == "zncc":
+                            mvv = np.mean(tilv)
+                            phi_uvl[x_i, x_j, k] = (
                                 1
-                                - np.sum((uu - muu) * (vv - mvv))
-                                /(vv.size * np.std(uu) * np.std(vv))
+                                - np.sum((tilu - muu) * (tilv - mvv))
+                                /(tilv.size * np.std(tilu) * np.std(tilv))
                             )
-
                     k += 1
 
-    phi_uvl = gerer_bords(phi_uvl)
+    phi_uvl = handle_boundaries(phi_uvl)
     return phi_uvl
 
 
 # alt@njit
 # altdef compute_tau_l_mean(phi_uul):
-# alt    nlig, ncol, _ = phi_uul.shape
+# alt    nrow, ncol, _ = phi_uul.shape
 # alt    tau_l_mean = nb.typed.List.empty_list(nb.f8)
-# alt    for i in np.arange(nlig):
+# alt    for i in np.arange(nrow):
 # alt        for j in np.arange(ncol):
 # alt            # recherche du minimum sur le voisinage b(x)
 # alt            tau_l_mean.append(np.nanmin(phi_uul[i, j, :]))
@@ -203,101 +201,144 @@ def calculer_phi(u, v, u_rho, v_rho, l, b, sigma, metrique, est_uu=False):
 # alt
 # alt    return tau_l_mean
 
-
-def calculer_pfas(cfg, im1, im2):
+def compute_measures_phi(cfg, im1, im2, scale):
     """
+    ...
+    """
+    # computation of φ(u, u, s)
+    im1_rho = gaussian_filter(im1, cfg.sigma)
+    phi_uus = compute_phi(
+        im1, im1, im1_rho, im1_rho, scale, cfg.b, cfg.metric, is_uu=True
+    )
+    print(phi_uus.shape)
+    _, _, ncan = phi_uus.shape
+    for n in np.arange(ncan):
+        iio.imwrite(f"phi_uus_{n:03}.tif", phi_uus[:, :, n])
+
+    # computation of φ(u, v, s)
+    im2_rho = gaussian_filter(im2, cfg.sigma)
+    phi_uvs = compute_phi(im1, im2, im1_rho, im2_rho, scale, cfg.b, cfg.metric)
+    return phi_uus, phi_uvs
+
+
+def compute_theta_us(phi_uus, nrow, ncol):
+    """
+    ...
+    """
+    # computation of θ_us
+    theta_us = []
+    for i in np.arange(nrow):
+        for j in np.arange(ncol):
+            try:
+                # search of the minimum in b(x)
+                theta_us += [np.nanmin(phi_uus[i, j, :])]
+            except ValueError:
+                pass
+    theta_us = np.nanmean(np.array(theta_us))
+    print(f"# θ_us {theta_us:3.5e}")
+    return theta_us
+
+
+def compute_pfas(cfg, im1, im2):
+    """
+    Compute the probability of positive detections under H_0 for each scale.
+
     Parameters
     ----------
     cfg: Namespace
-    im1: np.array(nlig, ncol)
-    im2: np.array(nlig, ncol)
+    im1: np.array(nrow, ncol)
+    im2: np.array(nrow, ncol)
     ican: int
     Return
     ------
-    decisions: np.array(L, nlig, ncol)
-    pfas: np.array(L, nlig, ncol)
+    decisions: np.array(L, nrow, ncol)
+    pfas: np.array(L, nrow, ncol)
     """
 
-    nlig, ncol = im1.shape
+    nrow, ncol = im1.shape
     pfas = []
     decisions = []
-    for l in np.arange(1, cfg.scale+1):
-        print(f"Scale {l}")
-        # computation of φ(u, u, l)
-        im1_rho = gaussian_filter(im1, cfg.sigma)
-        phi_uul = calculer_phi(
-            im1, im1, im1_rho, im1_rho, l,
-            cfg.b, cfg.sigma, cfg.metric, est_uu=True
-        )
-        print(phi_uul.shape)
-        nlig, ncol, ncan = phi_uul.shape
-        for n in np.arange(ncan):
-            iio.imwrite(f"phi_uul_{n:03}.tif", phi_uul[:, :, n])
 
-        # computation of φ(u, v, l)
-        im2_rho = gaussian_filter(im2, cfg.sigma)
-        phi_uvl = calculer_phi(
-            im1, im2, im1_rho, im2_rho, l, cfg.b, cfg.sigma, cfg.metric
-        )
+    for scale in np.arange(1, cfg.scale+1):
+        print(f"Scale {scale}")
+        phi_uus, phi_uvs = compute_measures_phi(cfg, im1, im2, scale)
+#com         # computation of φ(u, u, s)
+#com         im1_rho = gaussian_filter(im1, cfg.sigma)
+#com         phi_uus = compute_phi(
+#com             im1, im1, im1_rho, im1_rho, scale,
+#com             cfg.b, cfg.metric, is_uu=True
+#com         )
+#com         print(phi_uus.shape)
+#com         _, _, ncan = phi_uus.shape
+#com         for n in np.arange(ncan):
+#com             iio.imwrite(f"phi_uus_{n:03}.tif", phi_uus[:, :, n])
+#com
+#com         # computation of φ(u, v, s)
+#com         im2_rho = gaussian_filter(im2, cfg.sigma)
+#com         phi_uvs = compute_phi(
+#com             im1, im2, im1_rho, im2_rho, scale, cfg.b, cfg.metric
+#com         )
+#com
+        theta_us = compute_theta_us(phi_uus, nrow, ncol)
 
-        # computation of τ_mean(l)
-        tau_l_mean = []
-        for i in np.arange(nlig):
+#com         # computation of θ_us
+#com         theta_us = []
+#com         for i in np.arange(nrow):
+#com             for j in np.arange(ncol):
+#com                 try:
+#com                     # search of the minimum in b(x)
+#com                     theta_us += [np.nanmin(phi_uus[i, j, :])]
+#com                 except ValueError:
+#com                     pass
+#com         theta_us = np.nanmean(np.array(theta_us))
+#com
+#com         print(f"# θ_us {theta_us:3.5e}")
+
+        # computation of τ(u, s)
+        tau_us = np.zeros((nrow, ncol))
+        for i in np.arange(nrow):
             for j in np.arange(ncol):
                 try:
-                    # recherche du minimum sur le voisinage b(x)
-                    tau_l_mean += [np.nanmin(phi_uul[i, j, :])]
-                except ValueError:
-                    pass
-        tau_l_mean = np.nanmean(np.array(tau_l_mean))
-
-        print(f"# calcul de τ_mean(l) d'après (5.1) {tau_l_mean:3.5e}")
-
-        # computation of τ(u, l)
-        tau_ul = np.zeros((nlig, ncol))
-        for i in np.arange(nlig):
-            for j in np.arange(ncol):
-                try:
-                    tau_ul[i, j] = np.nanmax(
-                        (np.nanmax(phi_uul[i, j, :]), tau_l_mean)
+                    tau_us[i, j] = np.nanmax(
+                        (np.nanmax(phi_uus[i, j, :]), theta_us)
                     )
                 except ValueError:
                     pass
-#        iio.imwrite(join(cfg.dirout, f"tau_ul_s{l}.tif"), tau_ul)
-        print("# calcul de τ(u, l) d'après (5.1)")
-        # computation of S_Nl
-        S_Nl = np.zeros((nlig, ncol))
-        for i in np.arange(nlig):
+#        iio.imwrite(join(cfg.dirout, f"tau_ul_s{scale}.tif"), tau_ul)
+        print("# calcul de τ(u, s) d'après (5.1)")
+        # computation of F_s
+        f_s = np.zeros((nrow, ncol))
+        for i in np.arange(nrow):
             for j in np.arange(ncol):
                 try:
-                    S_Nl[i, j] = np.sum(phi_uvl[i, j, :] >= tau_ul[i, j])
+                    f_s[i, j] = np.sum(phi_uvs[i, j, :] >= tau_us[i, j])
                 except ValueError:
                     pass
-#        iio.imwrite(join(cfg.dirout, f"snl{l}.tif"), S_Nl)
+#        iio.imwrite(join(cfg.dirout, f"snl{scale}.tif"), f_s)
         # computation of the positive decisions
-        decision_l = np.uint8(S_Nl == (cfg.b * cfg.b))
-        decisions += [decision_l]
+        decision_s = np.uint8(f_s == (cfg.b * cfg.b))
+        decisions += [decision_s]
 
         # computation of pfa_l
-        pfa_l =  np.nanmean(np.exp(S_Nl - (cfg.b * cfg.b)))
-        pfas += [pfa_l]
+        pfa_s =  np.nanmean(np.exp(f_s - (cfg.b * cfg.b)))
+        pfas += [pfa_s]
 
     decisions = np.array(decisions)
     pfas = np.array(pfas)
     return pfas, decisions
 
 
-def calculer_pfal(k_d, lambdaa, nlig, ncol):
+def calculer_pfal(k_d, lambdaa, nrow, ncol):
     """
     Computation of the probability of false alarms.
-    kd: np.array ndim=(nlig, ncol)
+    kd: np.array ndim=(nrow, ncol)
     lambdaa : float
-    nlig : int
+    nrow : int
     ncol : int
     """
-    pfal = np.zeros((nlig, ncol))
+    pfal = np.zeros((nrow, ncol))
 
-    for i in np.arange(nlig):
+    for i in np.arange(nrow):
         for j in np.arange(ncol):
             for k in np.arange(k_d[i, j] + 1):
 #                print(k, lambdaa)
@@ -308,32 +349,34 @@ def calculer_pfal(k_d, lambdaa, nlig, ncol):
     return pfal
 
 
-def calculer_alpha(epsilon, nlig, ncol, pfal):
+def calculer_alpha(epsilon, nrow, ncol, pfal):
     """
     Compute the alpha threshold.
     """
-    alpha = np.max((epsilon/(nlig*ncol), np.min(pfal)))
+    alpha = np.max((epsilon/(nrow*ncol), np.min(pfal)))
     return alpha
 
 
 def algorithm(cfg, im1, im2):
     """
     cfg: Namespace
-    im1: np.array ndim=(nlig, ncol)
-    im2: np.array ndim=(nlig, ncol)
+    im1: np.array ndim=(nrow, ncol)
+    im2: np.array ndim=(nrow, ncol)
     """
-    nlig, ncol = im1.shape
-    pfas, decisions = calculer_pfas(cfg, im1, im2)
+    nrow, ncol = im1.shape
+    # compute the probability of positive detections under H_0 at each scale
+    pfas, decisions = compute_pfas(cfg, im1, im2)
+
     lambda_n = np.sum(np.array(pfas))
     print(f"lambda_n {lambda_n}")
     # compute the positive decisions kd
     k_d = np.sum(decisions, axis=0)
 
     # compute P_FA(x, L) for all x
-    pfal = calculer_pfal(k_d, lambda_n, nlig, ncol)
+    pfal = calculer_pfal(k_d, lambda_n, nrow, ncol)
 
     # Computation of the uniform threshold α to detect meaningful changes
-    alpha = calculer_alpha(cfg.epsilon, nlig, ncol, pfal)
+    alpha = calculer_alpha(cfg.epsilon, nrow, ncol, pfal)
 
     # Computation of the change detection map
     h_uv = np.uint8(pfal <= alpha)
@@ -440,7 +483,7 @@ def convert_to_gray_image(img):
 #com    the B04, B03, B02, B08 channels storage in this order. We retrieve the
 #com    B08 to compute the NDVI index…
 #com    """
-#com    nlig, ncol, ncan = img.shape
+#com    nrow, ncol, ncan = img.shape
 #com
 #com    if ncan == 4:
 #com        # we compute the NDVI index, where values stand in [-1, +1]
@@ -448,7 +491,7 @@ def convert_to_gray_image(img):
 #com        ndvi = np.expand_dims(ndvi, axis=-1)
 #com        # we normalize
 #com        img_ndvi = normaliser_image(ndvi)
-#com#        g_can = 255 * np.ones((nlig, ncol, 1))
+#com#        g_can = 255 * np.ones((nrow, ncol, 1))
 #com#        can = 255 * (1 - (ndvi + 1) / 2)
 #com#        img_ndvi = np.concatenate((can, g_can, can), axis=2)
 #com
@@ -457,7 +500,7 @@ def convert_to_gray_image(img):
 #com        ndwi = np.expand_dims(ndwi, axis=-1)
 #com        # we normalize
 #com        img_ndwi = normaliser_image(ndwi)
-#com#        b_can = 255 * np.ones((nlig, ncol, 1))
+#com#        b_can = 255 * np.ones((nrow, ncol, 1))
 #com#        can = 255 * (1 - (ndwi + 1) / 2)
 #com#        img_ndwi = np.concatenate((can, can, b_can), axis=2)
 #com
@@ -479,8 +522,8 @@ def main():
     im2 = iio.imread(cfg.image2)
     im1 = convert_to_gray_image(im1)
     im2 = convert_to_gray_image(im2)
-#    im1 = im1.reshape(nlig, ncol, 1)
-#    im2 = im2.reshape(nlig, ncol, 1)
+#    im1 = im1.reshape(nrow, ncol, 1)
+#    im2 = im2.reshape(nrow, ncol, 1)
     if not exists(cfg.dirout):
         os.mkdir(cfg.dirout)
 
