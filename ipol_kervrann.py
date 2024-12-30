@@ -201,6 +201,7 @@ def compute_phi(imu, imv, u_rho, v_rho, l, b, metric, is_uu=False):
 # alt
 # alt    return tau_l_mean
 
+@njit
 def compute_measures_phi(cfg, im1, im2, scale):
     """
     ...
@@ -221,10 +222,12 @@ def compute_measures_phi(cfg, im1, im2, scale):
     return phi_uus, phi_uvs
 
 
-def compute_theta_us(phi_uus, nrow, ncol):
+@njit
+def compute_theta_us(phi_uus):
     """
     ...
     """
+    nrow, ncol, _ = phi_uus.shape
     # computation of θ_us
     theta_us = []
     for i in np.arange(nrow):
@@ -239,9 +242,48 @@ def compute_theta_us(phi_uus, nrow, ncol):
     return theta_us
 
 
+@njit
+def compute_tau_us(phi_uus, theta_us):
+    """
+    ...
+    """
+    nrow, ncol, _ = theta_us.shape
+    tau_us = np.zeros((nrow, ncol))
+    for i in np.arange(nrow):
+        for j in np.arange(ncol):
+            try:
+                tau_us[i, j] = np.nanmax(
+                    (np.nanmax(phi_uus[i, j, :]), theta_us)
+                )
+            except ValueError:
+                pass
+    return tau_us
+
+
+@njit
+def compute_number_of_decisions(phi_uvs, phi_vus, tau_s, side_b):
+    """
+    ...
+    """
+    varphi = np.minimum(phi_uvs, phi_vus)
+    nrow, ncol, _ = varphi.shape
+    f_s = np.zeros((nrow, ncol))
+    for i in np.arange(nrow):
+        for j in np.arange(ncol):
+            try:
+                f_s[i, j] = np.sum(varphi[i, j, :] >= tau_s[i, j])
+            except ValueError:
+                pass
+    #        iio.imwrite(join(cfg.dirout, f"snl{scale}.tif"), f_s)
+    # computation of the positive decisions
+    decision_s = np.uint8(f_s == (side_b * side_b))
+    pfa_s =  np.nanmean(np.exp(f_s - (side_b * side_b)))
+    return decision_s, pfa_s
+
+
 def compute_pfas(cfg, im1, im2):
     """
-    Compute the probability of positive detections under H_0 for each scale.
+    Compute the probability of positive detections under H_0 at each scale.
 
     Parameters
     ----------
@@ -255,13 +297,14 @@ def compute_pfas(cfg, im1, im2):
     pfas: np.array(L, nrow, ncol)
     """
 
-    nrow, ncol = im1.shape
+#com    nrow, ncol = im1.shape
     pfas = []
     decisions = []
 
     for scale in np.arange(1, cfg.scale+1):
         print(f"Scale {scale}")
         phi_uus, phi_uvs = compute_measures_phi(cfg, im1, im2, scale)
+        phi_vvs, phi_vus = compute_measures_phi(cfg, im2, im1, scale)
 #com         # computation of φ(u, u, s)
 #com         im1_rho = gaussian_filter(im1, cfg.sigma)
 #com         phi_uus = compute_phi(
@@ -279,8 +322,8 @@ def compute_pfas(cfg, im1, im2):
 #com             im1, im2, im1_rho, im2_rho, scale, cfg.b, cfg.metric
 #com         )
 #com
-        theta_us = compute_theta_us(phi_uus, nrow, ncol)
-
+        theta_us = compute_theta_us(phi_uus)
+        theta_vs = compute_theta_us(phi_vvs)
 #com         # computation of θ_us
 #com         theta_us = []
 #com         for i in np.arange(nrow):
@@ -294,33 +337,32 @@ def compute_pfas(cfg, im1, im2):
 #com
 #com         print(f"# θ_us {theta_us:3.5e}")
 
-        # computation of τ(u, s)
-        tau_us = np.zeros((nrow, ncol))
-        for i in np.arange(nrow):
-            for j in np.arange(ncol):
-                try:
-                    tau_us[i, j] = np.nanmax(
-                        (np.nanmax(phi_uus[i, j, :]), theta_us)
-                    )
-                except ValueError:
-                    pass
+        # computation of τ(s)
+        tau_us = compute_tau_us(phi_uus, theta_us)
+        tau_vs = compute_tau_us(phi_vvs, theta_vs)
+        tau_s = np.minimum(tau_us, tau_vs)
+
 #        iio.imwrite(join(cfg.dirout, f"tau_ul_s{scale}.tif"), tau_ul)
         print("# calcul de τ(u, s) d'après (5.1)")
-        # computation of F_s
-        f_s = np.zeros((nrow, ncol))
-        for i in np.arange(nrow):
-            for j in np.arange(ncol):
-                try:
-                    f_s[i, j] = np.sum(phi_uvs[i, j, :] >= tau_us[i, j])
-                except ValueError:
-                    pass
-#        iio.imwrite(join(cfg.dirout, f"snl{scale}.tif"), f_s)
-        # computation of the positive decisions
-        decision_s = np.uint8(f_s == (cfg.b * cfg.b))
+
+#com        # computation of F_s
+#com        f_s = np.zeros((nrow, ncol))
+#com        for i in np.arange(nrow):
+#com            for j in np.arange(ncol):
+#com                try:
+#com                    f_s[i, j] = np.sum(phi_uvs[i, j, :] >= tau_us[i, j])
+#com                except ValueError:
+#com                    pass
+#com#        iio.imwrite(join(cfg.dirout, f"snl{scale}.tif"), f_s)
+#com        # computation of the positive decisions
+#com        decision_s = np.uint8(f_s == (cfg.b * cfg.b))
+        decision_s, pfa_s = compute_number_of_decisions(
+            phi_uvs, phi_vus, tau_s, cfg.b
+        )
         decisions += [decision_s]
 
         # computation of pfa_l
-        pfa_s =  np.nanmean(np.exp(f_s - (cfg.b * cfg.b)))
+#com        pfa_s =  np.nanmean(np.exp(f_s - (cfg.b * cfg.b)))
         pfas += [pfa_s]
 
     decisions = np.array(decisions)
@@ -428,7 +470,7 @@ def load_parameters():
     return cfg
 
 
-def normaliser_image(img, sat=None):
+def normalize_image(img, sat=None):
     """
     …
     """
@@ -450,7 +492,7 @@ def normaliser_image(img, sat=None):
     return img
 
 
-def calorifier_image(img, apply_log=True):
+def convert_to_jetcolor_image(img, apply_log=True):
     """
     Make a jetcolor image map.
     """
@@ -490,7 +532,7 @@ def convert_to_gray_image(img):
 #com        ndvi = (img[:, :, 3] - img[:, :, 0]) / (img[:, :, 3] + img[:, :, 0])
 #com        ndvi = np.expand_dims(ndvi, axis=-1)
 #com        # we normalize
-#com        img_ndvi = normaliser_image(ndvi)
+#com        img_ndvi = normalize_image(ndvi)
 #com#        g_can = 255 * np.ones((nrow, ncol, 1))
 #com#        can = 255 * (1 - (ndvi + 1) / 2)
 #com#        img_ndvi = np.concatenate((can, g_can, can), axis=2)
@@ -499,7 +541,7 @@ def convert_to_gray_image(img):
 #com        ndwi = (img[:, :, 1] - img[:, :, 3]) / (img[:, :, 1] + img[:, :, 3])
 #com        ndwi = np.expand_dims(ndwi, axis=-1)
 #com        # we normalize
-#com        img_ndwi = normaliser_image(ndwi)
+#com        img_ndwi = normalize_image(ndwi)
 #com#        b_can = 255 * np.ones((nrow, ncol, 1))
 #com#        can = 255 * (1 - (ndwi + 1) / 2)
 #com#        img_ndwi = np.concatenate((can, can, b_can), axis=2)
@@ -528,16 +570,16 @@ def main():
         os.mkdir(cfg.dirout)
 
     iio.imwrite(
-        join(cfg.dirout, "im1.png"), normaliser_image(np.copy(im1), sat=0.001)
+        join(cfg.dirout, "im1.png"), normalize_image(np.copy(im1), sat=0.001)
     )
     iio.imwrite(
-        join(cfg.dirout, "im2.png"), normaliser_image(np.copy(im2), sat=0.001)
+        join(cfg.dirout, "im2.png"), normalize_image(np.copy(im2), sat=0.001)
     )
 
     h_uv, pfal = algorithm(cfg, im1, im2)
-    h_uv = normaliser_image(h_uv)
+    h_uv = normalize_image(h_uv)
     iio.imwrite(join(cfg.dirout, "huvl.png"), h_uv)
-    pfal = calorifier_image(pfal)
+    pfal = convert_to_jetcolor_image(pfal)
     iio.imwrite(join(cfg.dirout, "pfal.png"), pfal)
     return 0
 
