@@ -48,7 +48,10 @@ from scipy.special import factorial
 from matplotlib import cm
 
 from numba import njit
-import imageio as iio
+#import numba as nba
+#import imageio as iio
+import iio
+
 
 @njit
 def handle_boundaries(img):
@@ -201,7 +204,6 @@ def compute_phi(imu, imv, u_rho, v_rho, l, b, metric, is_uu=False):
 # alt
 # alt    return tau_l_mean
 
-@njit
 def compute_measures_phi(cfg, im1, im2, scale):
     """
     ...
@@ -214,7 +216,7 @@ def compute_measures_phi(cfg, im1, im2, scale):
     print(phi_uus.shape)
     _, _, ncan = phi_uus.shape
     for n in np.arange(ncan):
-        iio.imwrite(f"phi_uus_{n:03}.tif", phi_uus[:, :, n])
+        iio.write(f"phi_uus_{n:03}.tif", phi_uus[:, :, n])
 
     # computation of φ(u, v, s)
     im2_rho = gaussian_filter(im2, cfg.sigma)
@@ -222,23 +224,25 @@ def compute_measures_phi(cfg, im1, im2, scale):
     return phi_uus, phi_uvs
 
 
-@njit
+#@njit
 def compute_theta_us(phi_uus):
     """
     ...
     """
     nrow, ncol, _ = phi_uus.shape
     # computation of θ_us
+#    theta_us = nba.typed.List.empty_list(nba.f8)
     theta_us = []
     for i in np.arange(nrow):
         for j in np.arange(ncol):
             try:
                 # search of the minimum in b(x)
                 theta_us += [np.nanmin(phi_uus[i, j, :])]
-            except ValueError:
+#                theta_us.append(np.nanmin(phi_uus[i, j, :]))
+            except Exception:
                 pass
     theta_us = np.nanmean(np.array(theta_us))
-    print(f"# θ_us {theta_us:3.5e}")
+    print(f"# θ_us {theta_us}")
     return theta_us
 
 
@@ -247,7 +251,7 @@ def compute_tau_us(phi_uus, theta_us):
     """
     ...
     """
-    nrow, ncol, _ = theta_us.shape
+    nrow, ncol, _ = phi_uus.shape
     tau_us = np.zeros((nrow, ncol))
     for i in np.arange(nrow):
         for j in np.arange(ncol):
@@ -255,7 +259,7 @@ def compute_tau_us(phi_uus, theta_us):
                 tau_us[i, j] = np.nanmax(
                     (np.nanmax(phi_uus[i, j, :]), theta_us)
                 )
-            except ValueError:
+            except Exception:
                 pass
     return tau_us
 
@@ -272,11 +276,11 @@ def compute_number_of_decisions(phi_uvs, phi_vus, tau_s, side_b):
         for j in np.arange(ncol):
             try:
                 f_s[i, j] = np.sum(varphi[i, j, :] >= tau_s[i, j])
-            except ValueError:
+            except Exception:
                 pass
-    #        iio.imwrite(join(cfg.dirout, f"snl{scale}.tif"), f_s)
+    #        iio.write(join(cfg.dirout, f"snl{scale}.tif"), f_s)
     # computation of the positive decisions
-    decision_s = np.uint8(f_s == (side_b * side_b))
+    decision_s = (f_s == (side_b * side_b)).astype(np.uint8)
     pfa_s =  np.nanmean(np.exp(f_s - (side_b * side_b)))
     return decision_s, pfa_s
 
@@ -303,66 +307,31 @@ def compute_pfas(cfg, im1, im2):
 
     for scale in np.arange(1, cfg.scale+1):
         print(f"Scale {scale}")
+        # computation of the φ(., ., s)
         phi_uus, phi_uvs = compute_measures_phi(cfg, im1, im2, scale)
         phi_vvs, phi_vus = compute_measures_phi(cfg, im2, im1, scale)
-#com         # computation of φ(u, u, s)
-#com         im1_rho = gaussian_filter(im1, cfg.sigma)
-#com         phi_uus = compute_phi(
-#com             im1, im1, im1_rho, im1_rho, scale,
-#com             cfg.b, cfg.metric, is_uu=True
-#com         )
-#com         print(phi_uus.shape)
-#com         _, _, ncan = phi_uus.shape
-#com         for n in np.arange(ncan):
-#com             iio.imwrite(f"phi_uus_{n:03}.tif", phi_uus[:, :, n])
-#com
-#com         # computation of φ(u, v, s)
-#com         im2_rho = gaussian_filter(im2, cfg.sigma)
-#com         phi_uvs = compute_phi(
-#com             im1, im2, im1_rho, im2_rho, scale, cfg.b, cfg.metric
-#com         )
-#com
+
+        # computation of the θ(., s)
         theta_us = compute_theta_us(phi_uus)
         theta_vs = compute_theta_us(phi_vvs)
-#com         # computation of θ_us
-#com         theta_us = []
-#com         for i in np.arange(nrow):
-#com             for j in np.arange(ncol):
-#com                 try:
-#com                     # search of the minimum in b(x)
-#com                     theta_us += [np.nanmin(phi_uus[i, j, :])]
-#com                 except ValueError:
-#com                     pass
-#com         theta_us = np.nanmean(np.array(theta_us))
-#com
-#com         print(f"# θ_us {theta_us:3.5e}")
+
+        print(f"# θ_us {theta_us:3.5e} θ_vs {theta_vs:3.5e}")
 
         # computation of τ(s)
         tau_us = compute_tau_us(phi_uus, theta_us)
         tau_vs = compute_tau_us(phi_vvs, theta_vs)
         tau_s = np.minimum(tau_us, tau_vs)
 
-#        iio.imwrite(join(cfg.dirout, f"tau_ul_s{scale}.tif"), tau_ul)
+#        iio.write(join(cfg.dirout, f"tau_ul_s{scale}.tif"), tau_ul)
         print("# calcul de τ(u, s) d'après (5.1)")
 
-#com        # computation of F_s
-#com        f_s = np.zeros((nrow, ncol))
-#com        for i in np.arange(nrow):
-#com            for j in np.arange(ncol):
-#com                try:
-#com                    f_s[i, j] = np.sum(phi_uvs[i, j, :] >= tau_us[i, j])
-#com                except ValueError:
-#com                    pass
-#com#        iio.imwrite(join(cfg.dirout, f"snl{scale}.tif"), f_s)
-#com        # computation of the positive decisions
-#com        decision_s = np.uint8(f_s == (cfg.b * cfg.b))
+        # computation of F_s
+        # computation of the positive decisions
+        # computation of pfa_l
         decision_s, pfa_s = compute_number_of_decisions(
             phi_uvs, phi_vus, tau_s, cfg.b
         )
         decisions += [decision_s]
-
-        # computation of pfa_l
-#com        pfa_s =  np.nanmean(np.exp(f_s - (cfg.b * cfg.b)))
         pfas += [pfa_s]
 
     decisions = np.array(decisions)
@@ -370,7 +339,7 @@ def compute_pfas(cfg, im1, im2):
     return pfas, decisions
 
 
-def calculer_pfal(k_d, lambdaa, nrow, ncol):
+def compute_global_pfa(k_d, lambdaa, nrow, ncol):
     """
     Computation of the probability of false alarms.
     kd: np.array ndim=(nrow, ncol)
@@ -391,7 +360,7 @@ def calculer_pfal(k_d, lambdaa, nrow, ncol):
     return pfal
 
 
-def calculer_alpha(epsilon, nrow, ncol, pfal):
+def compute_alpha(epsilon, nrow, ncol, pfal):
     """
     Compute the alpha threshold.
     """
@@ -415,10 +384,10 @@ def algorithm(cfg, im1, im2):
     k_d = np.sum(decisions, axis=0)
 
     # compute P_FA(x, L) for all x
-    pfal = calculer_pfal(k_d, lambda_n, nrow, ncol)
+    pfal = compute_global_pfa(k_d, lambda_n, nrow, ncol)
 
     # Computation of the uniform threshold α to detect meaningful changes
-    alpha = calculer_alpha(cfg.epsilon, nrow, ncol, pfal)
+    alpha = compute_alpha(cfg.epsilon, nrow, ncol, pfal)
 
     # Computation of the change detection map
     h_uv = np.uint8(pfal <= alpha)
@@ -451,7 +420,7 @@ def load_parameters():
     )
     parser.add_argument(
         "--metric", type=str, required=False, help="Dissimilarity measure.",
-        choices=["correlation", "l2", "ratio", "zncc", "lin"], default="l2"
+        choices=["correlation", "l2", "ratio", "zncc", "lin"], default="lin"
     )
     parser.add_argument(
         "--epsilon", type=float, required=False, default=1.0,
@@ -515,7 +484,7 @@ def convert_to_gray_image(img):
     channels storage in this order.
     """
     img = img[:, :, 0:3]
-    img = np.mean(img, axis=1)
+    img = np.mean(img, axis=2)
     return img
 #com
 #com
@@ -560,8 +529,8 @@ def main():
 
     cfg = load_parameters()
 
-    im1 = iio.imread(cfg.image1)
-    im2 = iio.imread(cfg.image2)
+    im1 = iio.read(cfg.image1)
+    im2 = iio.read(cfg.image2)
     im1 = convert_to_gray_image(im1)
     im2 = convert_to_gray_image(im2)
 #    im1 = im1.reshape(nrow, ncol, 1)
@@ -569,18 +538,18 @@ def main():
     if not exists(cfg.dirout):
         os.mkdir(cfg.dirout)
 
-    iio.imwrite(
+    iio.write(
         join(cfg.dirout, "im1.png"), normalize_image(np.copy(im1), sat=0.001)
     )
-    iio.imwrite(
+    iio.write(
         join(cfg.dirout, "im2.png"), normalize_image(np.copy(im2), sat=0.001)
     )
 
     h_uv, pfal = algorithm(cfg, im1, im2)
     h_uv = normalize_image(h_uv)
-    iio.imwrite(join(cfg.dirout, "huvl.png"), h_uv)
+    iio.write(join(cfg.dirout, "huvl.png"), h_uv)
     pfal = convert_to_jetcolor_image(pfal)
-    iio.imwrite(join(cfg.dirout, "pfal.png"), pfal)
+    iio.write(join(cfg.dirout, "pfal.png"), pfal)
     return 0
 
 if __name__ == "__main__":
