@@ -3,7 +3,7 @@
 #
 # BSD 3-Clause License
 #
-# Copyright (c) 2024, Tristan Dagobert  tristan.dagobert@ens-paris-saclay.fr
+# Copyright (c) 2025, Tristan Dagobert  tristan.dagobert@ens-paris-saclay.fr
 #
 # All rights reserved.
 #
@@ -33,15 +33,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 """
-This program computes the changes bewteen two RBG images according to the
-approach by Kervrann et al. described in the paper "Multiscale neighborhood-wise
-decision fusion for redundancy detection in image pairs".
+This program computes the changes between two RBG images according to the
+symmetric approach by Kervrann et al. described in the paper "Multiscale
+neighborhood-wise decision fusion for redundancy detection in image pairs".
 """
 
 import os
 from os.path import exists, join
 import argparse
 import timeit
+from numpy.linalg import norm
 import numpy as np
 from scipy.ndimage import gaussian_filter
 from scipy.special import factorial
@@ -61,6 +62,7 @@ def handle_boundaries(img):
     Parameters
     ----------
     img : np.array ndim=(nrow, ncol, ncan)
+    Input image.
     """
     nrow, ncol, ncan = img.shape
     for k in np.arange(ncan):
@@ -100,7 +102,7 @@ def handle_boundaries(img):
 
 
 @njit
-def compute_phi(imu, imv, u_rho, v_rho, l, b, metric, is_uu=False):
+def phi_rho(imu, imv, u_rho, v_rho, l, side_b, is_uu=False):
     """
     Parameters
     ----------
@@ -110,7 +112,7 @@ def compute_phi(imu, imv, u_rho, v_rho, l, b, metric, is_uu=False):
         Compared image.
     l : int
         Half side of the square patch.
-    b : int
+    side_b : int
         Side of the square search window.
     metric : str
         Name of metric used.
@@ -119,10 +121,10 @@ def compute_phi(imu, imv, u_rho, v_rho, l, b, metric, is_uu=False):
     """
 
     nrow, ncol = imu.shape
-    half_b = b // 2
+    half_b = side_b // 2
 
     # initialization
-    phi_uvl = np.nan * np.ones((nrow, ncol, b**2))
+    phi_uvl = np.nan * np.ones((nrow, ncol, side_b**2))
 
     # computation per pixel
     for x_i in np.arange(nrow):
@@ -131,17 +133,7 @@ def compute_phi(imu, imv, u_rho, v_rho, l, b, metric, is_uu=False):
             if x_i-l < 0 or nrow <= x_i+l or x_j-l < 0 or ncol <= x_j+l:
                 continue
             # neighborhood of x
-            if metric == "l2":
-                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1] - u_rho[x_i, x_j]
-            elif metric == "ratio":
-                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
-            elif metric == "correlation":
-                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
-            elif metric == "lin":
-                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
-            elif metric == "zncc":
-                tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
-                muu = np.mean(tilu)
+            tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1] - u_rho[x_i, x_j]
             k = 0
             for m in np.arange(-half_b, half_b + 1):
                 for n in np.arange(-half_b, half_b + 1):
@@ -158,88 +150,306 @@ def compute_phi(imu, imv, u_rho, v_rho, l, b, metric, is_uu=False):
 
                     # calcul de la distance
                     if not is_uu or (is_uu and not (y_i == x_i and y_j == x_j)):
-                        if metric == "l2":
-                            tilv = tilv - v_rho[y_i, y_j]
-                            phi_uvl[x_i, x_j, k] = np.sum((tilu - tilv)**2)
-                        elif metric == "ratio":
-                            tilv = tilv * (u_rho[x_i, x_j] / v_rho[y_i, y_j])
-                            phi_uvl[x_i, x_j, k] = np.sum((tilu - tilv)**2)
-                        elif metric == "lin":
-                            suu = np.sum(tilu*tilu)
-                            svv = np.sum(tilv*tilv)
-                            phi_uvl[x_i, x_j, k] = (
-                                max(suu, svv)
-                                * (1 - np.sum(tilu * tilv)**2 / (suu * svv))
-                            )
-                        elif metric == "correlation":
-                            phi_uvl[x_i, x_j, k] = (
-                                1
-                                - np.sum(tilu * tilv) /
-                                (np.sqrt(np.sum(tilu*tilu)) * np.sqrt(np.sum(tilv*tilv))
-                                 )
-                            )
-                        elif metric == "zncc":
-                            mvv = np.mean(tilv)
-                            phi_uvl[x_i, x_j, k] = (
-                                1
-                                - np.sum((tilu - muu) * (tilv - mvv))
-                                /(tilv.size * np.std(tilu) * np.std(tilv))
-                            )
+                        tilv = tilv - v_rho[y_i, y_j]
+                        phi_uvl[x_i, x_j, k] = np.sum((tilu - tilv)**2)
                     k += 1
 
     phi_uvl = handle_boundaries(phi_uvl)
     return phi_uvl
 
 
-# alt@njit
-# altdef compute_tau_l_mean(phi_uul):
-# alt    nrow, ncol, _ = phi_uul.shape
-# alt    tau_l_mean = nb.typed.List.empty_list(nb.f8)
-# alt    for i in np.arange(nrow):
-# alt        for j in np.arange(ncol):
-# alt            # recherche du minimum sur le voisinage b(x)
-# alt            tau_l_mean.append(np.nanmin(phi_uul[i, j, :]))
-# alt
-# alt    tau_l_mean = np.nanmean(np.array(tau_l_mean))
-# alt
-# alt    return tau_l_mean
+@njit
+def phi_ratio(imu, imv, u_rho, v_rho, l, side_b, is_uu=False):
+    """
+    Parameters
+    ----------
+    imu : np.array ndim=(nrow, ncol)
+        Reference image.
+    imv : np.array ndim=(nrow, ncol)
+        Compared image.
+    l : int
+        Half side of the square patch.
+    side_b : int
+        Side of the square search window.
+    metric : str
+        Name of metric used.
+    is_uu : bool
+        Indicate if pair of parameters (u, v) is (u, u) or not.
+    """
 
-def compute_measures_phi(cfg, im1, im2, scale):
+    nrow, ncol = imu.shape
+    half_b = side_b // 2
+
+    # initialization
+    phi_uvl = np.nan * np.ones((nrow, ncol, side_b**2))
+
+    # computation per pixel
+    for x_i in np.arange(nrow):
+        for x_j in np.arange(ncol):
+            # limits tests
+            if x_i-l < 0 or nrow <= x_i+l or x_j-l < 0 or ncol <= x_j+l:
+                continue
+            # neighborhood of x
+            tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
+            k = 0
+            for m in np.arange(-half_b, half_b + 1):
+                for n in np.arange(-half_b, half_b + 1):
+                    y_i = x_i + m
+                    y_j = x_j + n
+
+                    # limits tests
+                    if y_i-l < 0 or nrow <= y_i+l or y_j-l < 0 or ncol <= y_j+l:
+                        k += 1
+                        continue
+
+                    # neighborhood of y
+                    tilv = imv[y_i-l:y_i+l+1, y_j-l:y_j+l+1]
+
+                    # calcul de la distance
+                    if not is_uu or (is_uu and not (y_i == x_i and y_j == x_j)):
+                        tilv = tilv * (u_rho[x_i, x_j] / v_rho[y_i, y_j])
+                        phi_uvl[x_i, x_j, k] = np.sum((tilu - tilv)**2)
+                    k += 1
+
+    phi_uvl = handle_boundaries(phi_uvl)
+    return phi_uvl
+
+
+@njit
+def phi_correlation(imu, imv, l, side_b, is_uu=False):
+    """
+    Parameters
+    ----------
+    imu : np.array ndim=(nrow, ncol)
+        Reference image.
+    imv : np.array ndim=(nrow, ncol)
+        Compared image.
+    l : int
+        Half side of the square patch.
+    side_b : int
+        Side of the square search window.
+    metric : str
+        Name of metric used.
+    is_uu : bool
+        Indicate if pair of parameters (u, v) is (u, u) or not.
+    """
+
+    nrow, ncol = imu.shape
+    half_b = side_b // 2
+
+    # initialization
+    phi_uvl = np.nan * np.ones((nrow, ncol, side_b**2))
+
+    # computation per pixel
+    for x_i in np.arange(nrow):
+        for x_j in np.arange(ncol):
+            # limits tests
+            if x_i-l < 0 or nrow <= x_i+l or x_j-l < 0 or ncol <= x_j+l:
+                continue
+            # neighborhood of x
+            tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
+
+            k = 0
+            for m in np.arange(-half_b, half_b + 1):
+                for n in np.arange(-half_b, half_b + 1):
+                    y_i = x_i + m
+                    y_j = x_j + n
+
+                    # limits tests
+                    if y_i-l < 0 or nrow <= y_i+l or y_j-l < 0 or ncol <= y_j+l:
+                        k += 1
+                        continue
+
+                    # neighborhood of y
+                    tilv = imv[y_i-l:y_i+l+1, y_j-l:y_j+l+1]
+
+                    # calcul de la distance
+                    if not is_uu or (is_uu and not (y_i == x_i and y_j == x_j)):
+                        phi_uvl[x_i, x_j, k] = (
+                            1
+                            - np.sum(tilu * tilv) / (norm(tilu) * norm(tilv))
+                        )
+
+                    k += 1
+
+    phi_uvl = handle_boundaries(phi_uvl)
+    return phi_uvl
+
+
+@njit
+def phi_lin(imu, imv, l, side_b, is_uu=False):
+    """
+    Parameters
+    ----------
+    imu : np.array ndim=(nrow, ncol)
+        Reference image.
+    imv : np.array ndim=(nrow, ncol)
+        Compared image.
+    l : int
+        Half side of the square patch.
+    side_b : int
+        Side of the square search window.
+    metric : str
+        Name of metric used.
+    is_uu : bool
+        Indicate if pair of parameters (u, v) is (u, u) or not.
+    """
+
+    nrow, ncol = imu.shape
+    half_b = side_b // 2
+
+    # initialization
+    phi_uvl = np.nan * np.ones((nrow, ncol, side_b**2))
+
+    # computation per pixel
+    for x_i in np.arange(nrow):
+        for x_j in np.arange(ncol):
+            # limits tests
+            if x_i-l < 0 or nrow <= x_i+l or x_j-l < 0 or ncol <= x_j+l:
+                continue
+            # neighborhood of x
+            tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
+            k = 0
+            for m in np.arange(-half_b, half_b + 1):
+                for n in np.arange(-half_b, half_b + 1):
+                    y_i = x_i + m
+                    y_j = x_j + n
+
+                    # limits tests
+                    if y_i-l < 0 or nrow <= y_i+l or y_j-l < 0 or ncol <= y_j+l:
+                        k += 1
+                        continue
+
+                    # neighborhood of y
+                    tilv = imv[y_i-l:y_i+l+1, y_j-l:y_j+l+1]
+
+                    # calcul de la distance
+                    if not is_uu or (is_uu and not (y_i == x_i and y_j == x_j)):
+                        suu = np.sum(tilu*tilu)
+                        svv = np.sum(tilv*tilv)
+                        phi_uvl[x_i, x_j, k] = (
+                            max(suu, svv)
+                            * (1 - np.sum(tilu * tilv)**2 / (suu * svv))
+                        )
+                    k += 1
+
+    phi_uvl = handle_boundaries(phi_uvl)
+    return phi_uvl
+
+@njit
+def phi_zncc(imu, imv, l, side_b, is_uu=False):
+    """
+    Parameters
+    ----------
+    imu : np.array ndim=(nrow, ncol)
+        Reference image.
+    imv : np.array ndim=(nrow, ncol)
+        Compared image.
+    l : int
+        Half side of the square patch.
+    side_b : int
+        Side of the square search window.
+    metric : str
+        Name of metric used.
+    is_uu : bool
+        Indicate if pair of parameters (u, v) is (u, u) or not.
+    """
+
+    nrow, ncol = imu.shape
+    half_b = side_b // 2
+
+    # initialization
+    phi_uvl = np.nan * np.ones((nrow, ncol, side_b**2))
+
+    # computation per pixel
+    for x_i in np.arange(nrow):
+        for x_j in np.arange(ncol):
+            # limits tests
+            if x_i-l < 0 or nrow <= x_i+l or x_j-l < 0 or ncol <= x_j+l:
+                continue
+            # neighborhood of x
+            tilu = imu[x_i-l:x_i+l+1, x_j-l:x_j+l+1]
+            muu = np.mean(tilu)
+            k = 0
+            for m in np.arange(-half_b, half_b + 1):
+                for n in np.arange(-half_b, half_b + 1):
+                    y_i = x_i + m
+                    y_j = x_j + n
+
+                    # limits tests
+                    if y_i-l < 0 or nrow <= y_i+l or y_j-l < 0 or ncol <= y_j+l:
+                        k += 1
+                        continue
+
+                    # neighborhood of y
+                    tilv = imv[y_i-l:y_i+l+1, y_j-l:y_j+l+1]
+
+                    # calcul de la distance
+                    if not is_uu or (is_uu and not (y_i == x_i and y_j == x_j)):
+                        mvv = np.mean(tilv)
+                        phi_uvl[x_i, x_j, k] = (
+                            1
+                            - np.sum((tilu - muu) * (tilv - mvv))
+                            /(tilv.size * np.std(tilu) * np.std(tilv))
+                        )
+                    k += 1
+
+    phi_uvl = handle_boundaries(phi_uvl)
+    return phi_uvl
+
+
+def compute_dissimilarity_measure(cfg, im1, im2, scale):
     """
     ...
     """
     # computation of φ(u, u, s)
     im1_rho = gaussian_filter(im1, cfg.sigma)
-    phi_uus = compute_phi(
-        im1, im1, im1_rho, im1_rho, scale, cfg.b, cfg.metric, is_uu=True
-    )
+    phi_uus = None
+    if cfg.metric == "l2":
+        phi_uus = phi_rho(im1, im1, im1_rho, im1_rho, scale, cfg.b, is_uu=True)
+    elif cfg.metric == "ratio":
+        phi_uus = (
+            phi_ratio(im1, im1, im1_rho, im1_rho, scale, cfg.b, is_uu=True)
+        )
+    elif cfg.metric == "correlation":
+        phi_uus = phi_correlation(im1, im1, scale, cfg.b, is_uu=True)
+    elif cfg.metric == "lin":
+        phi_uus = phi_lin(im1, im1, scale, cfg.b, is_uu=True)
+    elif cfg.metric == "zncc":
+        phi_uus = phi_zncc(im1, im1, scale, cfg.b, is_uu=True)
+
     print(phi_uus.shape)
-    _, _, ncan = phi_uus.shape
-    for n in np.arange(ncan):
-        iio.write(f"phi_uus_{n:03}.tif", phi_uus[:, :, n])
 
     # computation of φ(u, v, s)
     im2_rho = gaussian_filter(im2, cfg.sigma)
-    phi_uvs = compute_phi(im1, im2, im1_rho, im2_rho, scale, cfg.b, cfg.metric)
+    phi_uvs = None
+    if cfg.metric == "l2":
+        phi_uvs = phi_rho(im1, im2, im1_rho, im2_rho, scale, cfg.b)
+    elif cfg.metric == "ratio":
+        phi_uvs = phi_ratio(im1, im2, im1_rho, im2_rho, scale, cfg.b)
+    elif cfg.metric == "correlation":
+        phi_uvs = phi_correlation(im1, im2, scale, cfg.b)
+    elif cfg.metric == "lin":
+        phi_uvs = phi_lin(im1, im2, scale, cfg.b)
+    elif cfg.metric == "zncc":
+        phi_uvs = phi_zncc(im1, im2, scale, cfg.b)
+
     return phi_uus, phi_uvs
 
 
-#@njit
 def compute_theta_us(phi_uus):
     """
     ...
     """
     nrow, ncol, _ = phi_uus.shape
     # computation of θ_us
-#    theta_us = nba.typed.List.empty_list(nba.f8)
     theta_us = []
     for i in np.arange(nrow):
         for j in np.arange(ncol):
             try:
                 # search of the minimum in b(x)
                 theta_us += [np.nanmin(phi_uus[i, j, :])]
-#                theta_us.append(np.nanmin(phi_uus[i, j, :]))
-            except Exception:
+            except ValueError:
                 pass
     theta_us = np.nanmean(np.array(theta_us))
     print(f"# θ_us {theta_us}")
@@ -278,7 +488,7 @@ def compute_number_of_decisions(phi_uvs, phi_vus, tau_s, side_b):
                 f_s[i, j] = np.sum(varphi[i, j, :] >= tau_s[i, j])
             except Exception:
                 pass
-    #        iio.write(join(cfg.dirout, f"snl{scale}.tif"), f_s)
+
     # computation of the positive decisions
     decision_s = (f_s == (side_b * side_b)).astype(np.uint8)
     pfa_s =  np.nanmean(np.exp(f_s - (side_b * side_b)))
@@ -300,16 +510,14 @@ def compute_pfas(cfg, im1, im2):
     decisions: np.array(L, nrow, ncol)
     pfas: np.array(L, nrow, ncol)
     """
-
-#com    nrow, ncol = im1.shape
     pfas = []
     decisions = []
 
     for scale in np.arange(1, cfg.scale+1):
         print(f"Scale {scale}")
         # computation of the φ(., ., s)
-        phi_uus, phi_uvs = compute_measures_phi(cfg, im1, im2, scale)
-        phi_vvs, phi_vus = compute_measures_phi(cfg, im2, im1, scale)
+        phi_uus, phi_uvs = compute_dissimilarity_measure(cfg, im1, im2, scale)
+        phi_vvs, phi_vus = compute_dissimilarity_measure(cfg, im2, im1, scale)
 
         # computation of the θ(., s)
         theta_us = compute_theta_us(phi_uus)
@@ -321,9 +529,6 @@ def compute_pfas(cfg, im1, im2):
         tau_us = compute_tau_us(phi_uus, theta_us)
         tau_vs = compute_tau_us(phi_vvs, theta_vs)
         tau_s = np.minimum(tau_us, tau_vs)
-
-#        iio.write(join(cfg.dirout, f"tau_ul_s{scale}.tif"), tau_ul)
-        print("# calcul de τ(u, s) d'après (5.1)")
 
         # computation of F_s
         # computation of the positive decisions
@@ -439,19 +644,18 @@ def load_parameters():
     return cfg
 
 
-def normalize_image(img, sat=None):
+def normalize_image(img, saturation=None):
     """
-    …
+    Set image in [0,255].
     """
     # convertir en float
-    if sat is None:
+    if saturation is None:
         mini = np.min(img)
         maxi = np.max(img)
     else:
         val = np.sort(img.flatten())
-        mini = val[int(sat*val.size)]
-        maxi = val[int((1-sat)*val.size)]
-        # remplacer les valeurs < mini ou > maxi par mini et maxi ... np.clip
+        mini = val[int(saturation*val.size)]
+        maxi = val[int((1-saturation)*val.size)]
     img = 255 * (img - mini) / (maxi - mini)
     img[img>255.0] = 255.0
     img[img<0.0] = 0.0
@@ -486,41 +690,7 @@ def convert_to_gray_image(img):
     img = img[:, :, 0:3]
     img = np.mean(img, axis=2)
     return img
-#com
-#com
-#comdef compute_index_maps(cfg, img):
-#com    """
-#com    If the image contains 4 channels, we assume it is a Sentinel-1 image with
-#com    the B04, B03, B02, B08 channels storage in this order. We retrieve the
-#com    B08 to compute the NDVI index…
-#com    """
-#com    nrow, ncol, ncan = img.shape
-#com
-#com    if ncan == 4:
-#com        # we compute the NDVI index, where values stand in [-1, +1]
-#com        ndvi = (img[:, :, 3] - img[:, :, 0]) / (img[:, :, 3] + img[:, :, 0])
-#com        ndvi = np.expand_dims(ndvi, axis=-1)
-#com        # we normalize
-#com        img_ndvi = normalize_image(ndvi)
-#com#        g_can = 255 * np.ones((nrow, ncol, 1))
-#com#        can = 255 * (1 - (ndvi + 1) / 2)
-#com#        img_ndvi = np.concatenate((can, g_can, can), axis=2)
-#com
-#com        # we compute the NDWI index, where values stand in [-1, +1]
-#com        ndwi = (img[:, :, 1] - img[:, :, 3]) / (img[:, :, 1] + img[:, :, 3])
-#com        ndwi = np.expand_dims(ndwi, axis=-1)
-#com        # we normalize
-#com        img_ndwi = normalize_image(ndwi)
-#com#        b_can = 255 * np.ones((nrow, ncol, 1))
-#com#        can = 255 * (1 - (ndwi + 1) / 2)
-#com#        img_ndwi = np.concatenate((can, can, b_can), axis=2)
-#com
-#com        img = img[:, :, 0:3]
-#com
-#com        return img, img_ndvi, ndvi, img_ndwi, ndwi
-#com    else:
-#com        return img, None, None, None, None
-#com
+
 
 def main():
     """
@@ -533,16 +703,16 @@ def main():
     im2 = iio.read(cfg.image2)
     im1 = convert_to_gray_image(im1)
     im2 = convert_to_gray_image(im2)
-#    im1 = im1.reshape(nrow, ncol, 1)
-#    im2 = im2.reshape(nrow, ncol, 1)
     if not exists(cfg.dirout):
         os.mkdir(cfg.dirout)
 
     iio.write(
-        join(cfg.dirout, "im1.png"), normalize_image(np.copy(im1), sat=0.001)
+        join(cfg.dirout, "im1.png"),
+        normalize_image(np.copy(im1), saturation=0.001)
     )
     iio.write(
-        join(cfg.dirout, "im2.png"), normalize_image(np.copy(im2), sat=0.001)
+        join(cfg.dirout, "im2.png"),
+        normalize_image(np.copy(im2), saturation=0.001)
     )
 
     h_uv, pfal = algorithm(cfg, im1, im2)
@@ -555,8 +725,9 @@ def main():
 if __name__ == "__main__":
     execution_time = timeit.timeit(main, number=1)
     print(f"Execution time: {execution_time:.6f} seconds")
-    #main()
 
-    #Lignes de commandes
-    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique correlation --dirout mcor_s2_b3_eps1_sig0.8
-    # python3 kervrann.py --image1 img1.png --image2 img2.png --scale 2 --epsilon 1 --sigma 0.8 --b 3 --metrique ratio --dirout mrat_s2_b3_eps1_sig0.8
+# Command line :
+# python ipol_kervrann.py
+# --image1 paires/2016-02-01_S2A_orbit_050_tile_34SGH_L1C_band_RGBI.tif
+# --image2 paires/2016-03-02_S2A_orbit_050_tile_34SGH_L1C_band_RGBI.tif
+# --dirout twe
