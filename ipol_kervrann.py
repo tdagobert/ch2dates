@@ -405,13 +405,13 @@ def compute_dissimilarity_measure(cfg, im1, im2, scale):
     # computation of φ(u, u, s)
     im1_rho = gaussian_filter(im1, cfg.sigma)
     phi_uus = None
-    if cfg.metric == "l2":
+    if cfg.metric == "rho":
         phi_uus = phi_rho(im1, im1, im1_rho, im1_rho, scale, cfg.b, is_uu=True)
-    elif cfg.metric == "ratio":
+    elif cfg.metric == "mult":
         phi_uus = (
             phi_ratio(im1, im1, im1_rho, im1_rho, scale, cfg.b, is_uu=True)
         )
-    elif cfg.metric == "correlation":
+    elif cfg.metric == "corr":
         phi_uus = phi_correlation(im1, im1, scale, cfg.b, is_uu=True)
     elif cfg.metric == "lin":
         phi_uus = phi_lin(im1, im1, scale, cfg.b, is_uu=True)
@@ -423,11 +423,11 @@ def compute_dissimilarity_measure(cfg, im1, im2, scale):
     # computation of φ(u, v, s)
     im2_rho = gaussian_filter(im2, cfg.sigma)
     phi_uvs = None
-    if cfg.metric == "l2":
+    if cfg.metric == "rho":
         phi_uvs = phi_rho(im1, im2, im1_rho, im2_rho, scale, cfg.b)
-    elif cfg.metric == "ratio":
+    elif cfg.metric == "mult":
         phi_uvs = phi_ratio(im1, im2, im1_rho, im2_rho, scale, cfg.b)
-    elif cfg.metric == "correlation":
+    elif cfg.metric == "corr":
         phi_uvs = phi_correlation(im1, im2, scale, cfg.b)
     elif cfg.metric == "lin":
         phi_uvs = phi_lin(im1, im2, scale, cfg.b)
@@ -625,7 +625,7 @@ def load_parameters():
     )
     parser.add_argument(
         "--metric", type=str, required=False, help="Dissimilarity measure.",
-        choices=["correlation", "l2", "ratio", "zncc", "lin"], default="lin"
+        choices=["corr", "rho", "mult", "zncc", "lin"], default="lin"
     )
     parser.add_argument(
         "--epsilon", type=float, required=False, default=1.0,
@@ -657,8 +657,8 @@ def normalize_image(img, saturation=None):
         mini = val[int(saturation*val.size)]
         maxi = val[int((1-saturation)*val.size)]
     img = 255 * (img - mini) / (maxi - mini)
-    img[img>255.0] = 255.0
-    img[img<0.0] = 0.0
+    img[img > 255.0] = 255.0
+    img[img < 0.0] = 0.0
     print("shape",img.shape)
 
     img = np.array(img, dtype=np.uint8)
@@ -721,6 +721,7 @@ def main():
     pfal = convert_to_jetcolor_image(pfal)
     iio.write(join(cfg.dirout, "pfal.png"), pfal)
     return 0
+
 
 if __name__ == "__main__":
     execution_time = timeit.timeit(main, number=1)
