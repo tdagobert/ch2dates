@@ -701,11 +701,8 @@ def main():
 
     im1 = iio.read(cfg.image1)
     im2 = iio.read(cfg.image2)
-    im1 = convert_to_gray_image(im1)
-    im2 = convert_to_gray_image(im2)
     if not exists(cfg.dirout):
         os.mkdir(cfg.dirout)
-
     iio.write(
         join(cfg.dirout, "im1.png"),
         normalize_image(np.copy(im1), saturation=0.001)
@@ -714,6 +711,9 @@ def main():
         join(cfg.dirout, "im2.png"),
         normalize_image(np.copy(im2), saturation=0.001)
     )
+
+    im1 = convert_to_gray_image(im1)
+    im2 = convert_to_gray_image(im2)
 
     h_uv, pfal = algorithm(cfg, im1, im2)
     h_uv = normalize_image(h_uv)
