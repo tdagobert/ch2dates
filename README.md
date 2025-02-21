@@ -1,2 +1,2 @@
 # ch2dates
-Algorithmes de changement entre deux dates
+Change detection between two dates using the Kervrann et al. approach.
