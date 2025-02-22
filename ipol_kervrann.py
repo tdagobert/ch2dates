@@ -606,15 +606,17 @@ def load_parameters():
     """
 
     desc = "Compute the changes between two images."
-    parser = argparse.ArgumentParser(description=desc)
-    subparsers = parser.add_subparsers(dest="action")
-
-    a_parser = subparsers.add_parser("pair")
+    a_parser = argparse.ArgumentParser(description=desc)
+#com    subparsers = parser.add_subparsers(dest="action")
+#com    a_parser = subparsers.add_parser("pair")
     a_parser.add_argument(
-        "--image1", type=str, required=True, help="First image."
+        "--zip", type=str, required=False, help="Contains the image pair."
     )
     a_parser.add_argument(
-        "--image2", type=str, required=True, help="Second image."
+        "--image1", type=str, required=False, help="First image."
+    )
+    a_parser.add_argument(
+        "--image2", type=str, required=False, help="Second image."
     )
     a_parser.add_argument(
         "--scale", type=int, required=False, help="Number of scales.", default=2
@@ -643,37 +645,34 @@ def load_parameters():
         "--dirout", type=str, required=False, default="./",
         help="Output directory."
     )
-
-    b_parser = subparsers.add_parser("zip")
-    b_parser.add_argument(
-        "--zip", type=str, required=True, help="Contains the image pair."
-    )
-    b_parser.add_argument(
-        "--b", type=int, required=False, default=3,
-        help="Side of the square neighborhood of x."
-    )
-    b_parser.add_argument(
-        "--B", type=int, required=False, default=3,
-        help="Side of the square search window related to x."
-    )
-    b_parser.add_argument(
-        "--metric", type=str, required=False, help="Dissimilarity measure.",
-        choices=["corr", "rho", "mult", "zncc", "lin"], default="lin"
-    )
-    b_parser.add_argument(
-        "--epsilon", type=float, required=False, default=1.0,
-        help="Number of false alarms threshold."
-    )
-    b_parser.add_argument(
-        "--sigma", type=float, required=False, default=0.8,
-        help="Standard deviation of the blur kernel."
-    )
-    b_parser.add_argument(
-        "--dirout", type=str, required=False, default="./",
-        help="Output directory."
-    )
-
-    cfg = parser.parse_args()
+#com
+#com    b_parser = subparsers.add_parser("zip")
+#com    b_parser.add_argument(
+#com        "--b", type=int, required=False, default=3,
+#com        help="Side of the square neighborhood of x."
+#com    )
+#com    b_parser.add_argument(
+#com        "--B", type=int, required=False, default=3,
+#com        help="Side of the square search window related to x."
+#com    )
+#com    b_parser.add_argument(
+#com        "--metric", type=str, required=False, help="Dissimilarity measure.",
+#com        choices=["corr", "rho", "mult", "zncc", "lin"], default="lin"
+#com    )
+#com    b_parser.add_argument(
+#com        "--epsilon", type=float, required=False, default=1.0,
+#com        help="Number of false alarms threshold."
+#com    )
+#com    b_parser.add_argument(
+#com        "--sigma", type=float, required=False, default=0.8,
+#com        help="Standard deviation of the blur kernel."
+#com    )
+#com    b_parser.add_argument(
+#com        "--dirout", type=str, required=False, default="./",
+#com        help="Output directory."
+#com    )
+#com
+    cfg = a_parser.parse_args()
 
     return cfg
 
@@ -684,10 +683,8 @@ def load_images(cfg):
     """
     im1 = None
     im2 = None
-    if cfg.action == "pair":
-        im1 = iio.read(cfg.image1)
-        im2 = iio.read(cfg.image2)
-    if cfg.action == "zip":
+
+    if cfg.zip is not None:
         with zipfile.ZipFile(cfg.zip, 'r') as monzip:
             files = sorted([basename(fic) for fic in monzip.namelist()])
             pfxrep = [dirname(fic) for fic in monzip.namelist()][0]
@@ -700,6 +697,9 @@ def load_images(cfg):
         files = sorted(os.listdir(join(cfg.dirout, pfxrep)))
         im1 = iio.read(files[0])
         im2 = iio.read(files[1])
+    else:
+        im1 = iio.read(cfg.image1)
+        im2 = iio.read(cfg.image2)
     return im1, im2
 
 
