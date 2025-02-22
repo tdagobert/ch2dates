@@ -39,9 +39,10 @@ neighborhood-wise decision fusion for redundancy detection in image pairs".
 """
 
 import os
-from os.path import exists, join
+from os.path import exists, join, basename, dirname
 import argparse
 import timeit
+import zipfile
 from numpy.linalg import norm
 import numpy as np
 from scipy.ndimage import gaussian_filter
@@ -606,42 +607,100 @@ def load_parameters():
 
     desc = "Compute the changes between two images."
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument(
+    subparsers = parser.add_subparsers(dest="action")
+
+    a_parser = subparsers.add_parser("pair")
+    a_parser.add_argument(
         "--image1", type=str, required=True, help="First image."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--image2", type=str, required=True, help="Second image."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--scale", type=int, required=False, help="Number of scales.", default=2
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--b", type=int, required=False, default=3,
         help="Side of the square neighborhood of x."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--B", type=int, required=False, default=3,
         help="Side of the square search window related to x."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--metric", type=str, required=False, help="Dissimilarity measure.",
         choices=["corr", "rho", "mult", "zncc", "lin"], default="lin"
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--epsilon", type=float, required=False, default=1.0,
         help="Number of false alarms threshold."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--sigma", type=float, required=False, default=0.8,
         help="Standard deviation of the blur kernel."
     )
-    parser.add_argument(
+    a_parser.add_argument(
         "--dirout", type=str, required=False, default="./",
         help="Output directory."
     )
+
+    b_parser = subparsers.add_parser("zip")
+    b_parser.add_argument(
+        "--zip", type=str, required=True, help="Contain the image pair."
+    )
+    b_parser.add_argument(
+        "--b", type=int, required=False, default=3,
+        help="Side of the square neighborhood of x."
+    )
+    b_parser.add_argument(
+        "--B", type=int, required=False, default=3,
+        help="Side of the square search window related to x."
+    )
+    b_parser.add_argument(
+        "--metric", type=str, required=False, help="Dissimilarity measure.",
+        choices=["corr", "rho", "mult", "zncc", "lin"], default="lin"
+    )
+    b_parser.add_argument(
+        "--epsilon", type=float, required=False, default=1.0,
+        help="Number of false alarms threshold."
+    )
+    b_parser.add_argument(
+        "--sigma", type=float, required=False, default=0.8,
+        help="Standard deviation of the blur kernel."
+    )
+    b_parser.add_argument(
+        "--dirout", type=str, required=False, default="./",
+        help="Output directory."
+    )
+
     cfg = parser.parse_args()
 
     return cfg
+
+
+def load_images(cfg):
+    """
+    Load the image pair.
+    """
+    im1 = None
+    im2 = None
+    if cfg.action == "pair":
+        im1 = iio.read(cfg.image1)
+        im2 = iio.read(cfg.image2)
+    if cfg.action == "zip":
+        with zipfile.ZipFile(cfg.zip, 'r') as monzip:
+            files = sorted([basename(fic) for fic in monzip.namelist()])
+            pfxrep = [dirname(fic) for fic in monzip.namelist()][0]
+            print(pfxrep)
+            monzip.extractall(path=cfg.dirout)
+            print(
+                "contenu du répertoire:",
+                sorted(os.listdir(join(cfg.dirout, pfxrep)))
+            )
+        files = sorted(os.listdir(join(cfg.dirout, pfxrep)))
+        im1 = iio.read(files[0])
+        im2 = iio.read(files[1])
+    return im1, im2
 
 
 def normalize_image(img, saturation=None):
@@ -698,11 +757,11 @@ def main():
     """
 
     cfg = load_parameters()
-
-    im1 = iio.read(cfg.image1)
-    im2 = iio.read(cfg.image2)
     if not exists(cfg.dirout):
         os.mkdir(cfg.dirout)
+
+    im1, im2 = load_images(cfg)
+
     iio.write(
         join(cfg.dirout, "im1.png"),
         normalize_image(np.copy(im1), saturation=0.001)
