@@ -646,7 +646,7 @@ def load_parameters():
 
     b_parser = subparsers.add_parser("zip")
     b_parser.add_argument(
-        "--zip", type=str, required=True, help="Contain the image pair."
+        "--zip", type=str, required=True, help="Contains the image pair."
     )
     b_parser.add_argument(
         "--b", type=int, required=False, default=3,
