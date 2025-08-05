@@ -1,0 +1,6 @@
+__title__ = "A Brief Analysis of the Change Detector by Kervrann et al."
+__description__ = "Compute the changes between two images."
+__url__ = "https://github.com/tdagobert/ch2dates"
+__version__ = "1.0"
+__author__ = "Tristan Dagobert"
+__author_email__ = "tristan.dagobert@ens-paris-saclay.fr"

@@ -548,10 +548,16 @@ def compute_pfas(cfg, im1, im2):
 def compute_global_pfa(k_d, lambdaa, nrow, ncol):
     """
     Computation of the probability of false alarms.
+    Parameters
+    ----------
     kd: np.array ndim=(nrow, ncol)
     lambdaa : float
     nrow : int
     ncol : int
+    Return
+    ------
+    pfal : np.array ndim=(nrow, ncol)
+        Probability of false alarms.
     """
     pfal = np.zeros((nrow, ncol))
 
@@ -659,10 +665,9 @@ def load_images(cfg):
         with zipfile.ZipFile(cfg.zip, 'r') as monzip:
             files = sorted([basename(fic) for fic in monzip.namelist()])
             pfxrep = [dirname(fic) for fic in monzip.namelist()][0]
-            print(pfxrep)
             monzip.extractall(path=cfg.dirout)
             print(
-                "contenu du répertoire:",
+                "Directory content:",
                 sorted(os.listdir(join(cfg.dirout, pfxrep)))
             )
         files = sorted(os.listdir(join(cfg.dirout, pfxrep)))
@@ -678,7 +683,6 @@ def normalize_image(img, saturation=None):
     """
     Set image in [0,255].
     """
-    # convertir en float
     if saturation is None:
         mini = np.min(img)
         maxi = np.max(img)
